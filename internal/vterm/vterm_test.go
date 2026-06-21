@@ -102,6 +102,19 @@ func TestBackspace(t *testing.T) {
 	}
 }
 
+func TestUTF8Rune(t *testing.T) {
+	s := New(20, 5)
+	// "café" — e followed by 3-byte UTF-8 'é' (U+00E9 = 0xC3 0xA9)
+	s.Write([]byte("caf\xc3\xa9"))
+	cells, cols, _, _, curCol := s.Snapshot()
+	if textAt(cells, cols, 0) != "café" {
+		t.Fatalf("utf8: got %q, want %q", textAt(cells, cols, 0), "café")
+	}
+	if curCol != 4 {
+		t.Fatalf("utf8: cursor at col %d, want 4", curCol)
+	}
+}
+
 func TestResize(t *testing.T) {
 	s := New(10, 5)
 	s.Write([]byte("hello"))

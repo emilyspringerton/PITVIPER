@@ -2,7 +2,10 @@
 // It maintains a fixed grid of cells and processes PTY output bytes.
 package vterm
 
-import "sync"
+import (
+	"sync"
+	"unicode/utf8"
+)
 
 // Color is an xterm-256 color index (0–255) or one of the two sentinel values below.
 type Color uint16
@@ -36,6 +39,9 @@ type Screen struct {
 	bold bool
 	// escape buffer
 	esc []byte
+	// UTF-8 accumulator for multi-byte sequences
+	utf8Buf [4]byte
+	utf8Len int
 }
 
 // New creates a Screen of the given dimensions.
@@ -93,15 +99,49 @@ func (s *Screen) Resize(cols, rows int) {
 }
 
 // Write processes raw PTY output and updates the screen state.
+// Handles UTF-8 multi-byte sequences; invalid byte sequences are replaced with U+FFFD.
 func (s *Screen) Write(data []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, b := range data {
+	for i := 0; i < len(data); {
+		b := data[i]
+
+		// Flush any pending UTF-8 accumulator if we hit an ASCII control or ESC.
+		if s.utf8Len > 0 && (b < 0x80 || b >= 0xC0) {
+			s.putChar(utf8.RuneError)
+			s.utf8Len = 0
+		}
+
+		// Inside a multi-byte UTF-8 sequence — continuation byte.
+		if s.utf8Len > 0 && b >= 0x80 && b < 0xC0 {
+			s.utf8Buf[s.utf8Len] = b
+			s.utf8Len++
+			need := utf8SeqLen(s.utf8Buf[0])
+			if s.utf8Len >= need {
+				r, _ := utf8.DecodeRune(s.utf8Buf[:s.utf8Len])
+				s.putChar(r)
+				s.utf8Len = 0
+			}
+			i++
+			continue
+		}
+
+		// Handle escape sequences (ASCII only — ESC is never part of UTF-8).
 		if len(s.esc) > 0 {
 			s.esc = append(s.esc, b)
 			s.handleEsc()
+			i++
 			continue
 		}
+
+		// Start of a multi-byte UTF-8 sequence.
+		if b >= 0xC0 {
+			s.utf8Buf[0] = b
+			s.utf8Len = 1
+			i++
+			continue
+		}
+
 		switch b {
 		case 0x1b: // ESC
 			s.esc = []byte{0x1b}
@@ -124,6 +164,21 @@ func (s *Screen) Write(data []byte) {
 				s.putChar(rune(b))
 			}
 		}
+		i++
+	}
+}
+
+// utf8SeqLen returns the total byte length of a UTF-8 sequence starting with lead byte b.
+func utf8SeqLen(b byte) int {
+	switch {
+	case b < 0x80:
+		return 1
+	case b < 0xE0:
+		return 2
+	case b < 0xF0:
+		return 3
+	default:
+		return 4
 	}
 }
 
