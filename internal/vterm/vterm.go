@@ -558,6 +558,43 @@ func (s *Screen) handleCSI(final byte, params string) {
 			}
 		}
 		// All other modes ignored.
+	case 'L': // IL: insert N lines at cursor row (within scroll region)
+		n := 1
+		if len(nums) > 0 && nums[0] > 0 {
+			n = nums[0]
+		}
+		// Shift rows from cursor down to scroll-region bottom DOWN by n; blank inserted rows.
+		top := s.curRow
+		bot := s.scrollRegBot
+		if top <= bot {
+			blank := Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
+			for shift := min2(n, bot-top+1); shift > 0; shift-- {
+				for row := bot; row > top; row-- {
+					copy(s.cells[row*s.cols:(row+1)*s.cols], s.cells[(row-1)*s.cols:row*s.cols])
+				}
+				for col := 0; col < s.cols; col++ {
+					s.cells[top*s.cols+col] = blank
+				}
+			}
+		}
+	case 'M': // DL: delete N lines at cursor row (within scroll region)
+		n := 1
+		if len(nums) > 0 && nums[0] > 0 {
+			n = nums[0]
+		}
+		top := s.curRow
+		bot := s.scrollRegBot
+		if top <= bot {
+			blank := Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
+			for shift := min2(n, bot-top+1); shift > 0; shift-- {
+				for row := top; row < bot; row++ {
+					copy(s.cells[row*s.cols:(row+1)*s.cols], s.cells[(row+1)*s.cols:(row+2)*s.cols])
+				}
+				for col := 0; col < s.cols; col++ {
+					s.cells[bot*s.cols+col] = blank
+				}
+			}
+		}
 	case 'S': // scroll up N lines (within scroll region)
 		n := 1
 		if len(nums) > 0 && nums[0] > 0 {

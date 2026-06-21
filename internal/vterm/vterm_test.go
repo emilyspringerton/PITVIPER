@@ -174,6 +174,45 @@ func TestUTF8Rune(t *testing.T) {
 	}
 }
 
+func TestCSIInsertDeleteLine(t *testing.T) {
+	// CSI L: insert line at cursor — rows from cursor down shift down, cursor row blanked.
+	s := New(10, 4)
+	s.Write([]byte("ROW0\r\nROW1\r\nROW2\r\nROW3"))
+	// Move cursor to row 1
+	s.Write([]byte("\033[2;1H"))
+	// Insert 1 line → ROW1,ROW2,ROW3 shift down; row 1 blanked; ROW3 pushed off
+	s.Write([]byte("\033[1L"))
+	cells, cols, _, _, _ := s.Snapshot()
+	if textAt(cells, cols, 0) != "ROW0" {
+		t.Errorf("IL: row0 = %q, want ROW0", textAt(cells, cols, 0))
+	}
+	if textAt(cells, cols, 1) != "" {
+		t.Errorf("IL: row1 = %q, want blank (inserted)", textAt(cells, cols, 1))
+	}
+	if textAt(cells, cols, 2) != "ROW1" {
+		t.Errorf("IL: row2 = %q, want ROW1", textAt(cells, cols, 2))
+	}
+	if textAt(cells, cols, 3) != "ROW2" {
+		t.Errorf("IL: row3 = %q, want ROW2", textAt(cells, cols, 3))
+	}
+
+	// CSI M: delete line at cursor — rows below shift up, last row blanked.
+	s2 := New(10, 3)
+	s2.Write([]byte("ROW0\r\nROW1\r\nROW2"))
+	s2.Write([]byte("\033[1;1H")) // cursor to row 0
+	s2.Write([]byte("\033[1M"))   // delete 1 line → ROW1,ROW2 shift up; last row blank
+	cells2, cols2, _, _, _ := s2.Snapshot()
+	if textAt(cells2, cols2, 0) != "ROW1" {
+		t.Errorf("DL: row0 = %q, want ROW1", textAt(cells2, cols2, 0))
+	}
+	if textAt(cells2, cols2, 1) != "ROW2" {
+		t.Errorf("DL: row1 = %q, want ROW2", textAt(cells2, cols2, 1))
+	}
+	if textAt(cells2, cols2, 2) != "" {
+		t.Errorf("DL: row2 = %q, want blank", textAt(cells2, cols2, 2))
+	}
+}
+
 func TestCSIScrollUpDown(t *testing.T) {
 	s := New(10, 3)
 	s.Write([]byte("ROW0\r\nROW1\r\nROW2"))
