@@ -1,4 +1,5 @@
 ## 2026-06-21
+- test: S55-01 TestEraseInDisplay 0J/1J — 24 vterm tests (Apple #2375)
 - feat: S52-01 DECSTBM scroll region + ESC M reverse index + TestDECSTBM + TestReverseIndex (Apple #2361)
 - feat: S51-02 alternate screen buffer ?1049h/?1049l + TestAlternateScreen (Apple #2358)
 - feat: S51-01 cursor visibility ?25l/?25h + TestCursorVisibility (Apple #2355)
