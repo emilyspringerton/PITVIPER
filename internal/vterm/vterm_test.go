@@ -174,6 +174,55 @@ func TestUTF8Rune(t *testing.T) {
 	}
 }
 
+func TestCSIScrollUpDown(t *testing.T) {
+	s := New(10, 3)
+	s.Write([]byte("ROW0\r\nROW1\r\nROW2"))
+
+	// CSI 1 S — scroll up 1 line within scroll region
+	s.Write([]byte("\033[1S"))
+	cells, cols, _, _, _ := s.Snapshot()
+	if textAt(cells, cols, 0) != "ROW1" {
+		t.Errorf("after CSI S: row 0 = %q, want ROW1", textAt(cells, cols, 0))
+	}
+	if textAt(cells, cols, 2) != "" {
+		t.Errorf("after CSI S: row 2 = %q, want blank", textAt(cells, cols, 2))
+	}
+
+	// CSI 1 T — scroll down 1 line
+	s.Write([]byte("\033[1T"))
+	cells, cols, _, _, _ = s.Snapshot()
+	if textAt(cells, cols, 0) != "" {
+		t.Errorf("after CSI T: row 0 = %q, want blank", textAt(cells, cols, 0))
+	}
+	if textAt(cells, cols, 1) != "ROW1" {
+		t.Errorf("after CSI T: row 1 = %q, want ROW1", textAt(cells, cols, 1))
+	}
+}
+
+func TestCSIDeleteInsertChar(t *testing.T) {
+	// CSI 2 P — delete 2 chars at cursor
+	s := New(10, 3)
+	s.Write([]byte("ABCDEFGH"))
+	s.Write([]byte("\033[1;3H")) // cursor to row 1, col 3 (1-indexed) → col 2
+	s.Write([]byte("\033[2P"))   // delete 2 chars at col 2
+	cells, cols, _, _, _ := s.Snapshot()
+	// "ABCDEFGH" → delete at col 2, n=2 → "ABEFGH  "
+	if textAt(cells, cols, 0) != "ABEFGH" {
+		t.Errorf("CSI P: row 0 = %q, want ABEFGH", textAt(cells, cols, 0))
+	}
+
+	// CSI 2 @ — insert 2 blank chars at cursor
+	s2 := New(10, 3)
+	s2.Write([]byte("ABCDEFGH"))
+	s2.Write([]byte("\033[1;3H")) // cursor to col 2 (0-indexed)
+	s2.Write([]byte("\033[2@"))   // insert 2 blanks at col 2
+	cells2, cols2, _, _, _ := s2.Snapshot()
+	// screen=10; "ABCDEFGH" + 2 trailing spaces; insert 2 at col 2 → "AB  CDEFGH"
+	if textAt(cells2, cols2, 0) != "AB  CDEFGH" {
+		t.Errorf("CSI @: row 0 = %q, want AB  CDEFGH", textAt(cells2, cols2, 0))
+	}
+}
+
 func TestTabStop(t *testing.T) {
 	s := New(40, 5)
 	// Tab from col 0 → col 8

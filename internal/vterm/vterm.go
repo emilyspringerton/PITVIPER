@@ -558,7 +558,63 @@ func (s *Screen) handleCSI(final byte, params string) {
 			}
 		}
 		// All other modes ignored.
+	case 'S': // scroll up N lines (within scroll region)
+		n := 1
+		if len(nums) > 0 && nums[0] > 0 {
+			n = nums[0]
+		}
+		s.scrollUp(n)
+	case 'T': // scroll down N lines (within scroll region)
+		n := 1
+		if len(nums) > 0 && nums[0] > 0 {
+			n = nums[0]
+		}
+		s.scrollDown(n)
+	case 'P': // delete N characters at cursor (shift line left)
+		n := 1
+		if len(nums) > 0 && nums[0] > 0 {
+			n = nums[0]
+		}
+		row := s.curRow * s.cols
+		col := s.curCol
+		end := s.cols
+		if col+n < end {
+			copy(s.cells[row+col:row+end-n], s.cells[row+col+n:row+end])
+		}
+		blank := Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
+		for i := max2(col, end-n); i < end; i++ {
+			s.cells[row+i] = blank
+		}
+	case '@': // insert N blank chars at cursor (shift line right)
+		n := 1
+		if len(nums) > 0 && nums[0] > 0 {
+			n = nums[0]
+		}
+		row := s.curRow * s.cols
+		col := s.curCol
+		end := s.cols
+		if col+n < end {
+			copy(s.cells[row+col+n:row+end], s.cells[row+col:row+end-n])
+		}
+		blank := Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
+		for i := col; i < min2(col+n, end); i++ {
+			s.cells[row+i] = blank
+		}
 	}
+}
+
+func max2(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func min2(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (s *Screen) handleSGR(nums []int) {
