@@ -45,6 +45,8 @@ type Screen struct {
 	// scrollback buffer and view offset
 	sb        *scrollbackBuf
 	scrollTop int // lines scrolled back from live view (0 = live)
+	// window title (from OSC 0/1/2 sequences)
+	Title string
 }
 
 // New creates a Screen of the given dimensions.
@@ -177,6 +179,35 @@ func (s *Screen) Write(data []byte) {
 	}
 }
 
+// handleOSC processes an OSC payload (the bytes between ESC ] and the terminator).
+// Supported: 0 (icon+title), 1 (icon title), 2 (window title).
+func (s *Screen) handleOSC(payload []byte) {
+	// payload format: "N;text" where N is the OSC command number.
+	semi := -1
+	for i, b := range payload {
+		if b == ';' {
+			semi = i
+			break
+		}
+	}
+	if semi < 0 {
+		return
+	}
+	cmd := string(payload[:semi])
+	text := string(payload[semi+1:])
+	switch cmd {
+	case "0", "1", "2": // set icon/window title
+		s.Title = text
+	}
+}
+
+// GetTitle returns the current window title (from OSC sequences).
+func (s *Screen) GetTitle() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Title
+}
+
 // utf8SeqLen returns the total byte length of a UTF-8 sequence starting with lead byte b.
 func utf8SeqLen(b byte) int {
 	switch {
@@ -237,6 +268,26 @@ func (s *Screen) handleEsc() {
 	if len(e) < 2 {
 		return
 	}
+	// OSC sequences: ESC ] N ; text BEL   or   ESC ] N ; text ESC \
+	if e[1] == ']' {
+		// Accumulate until BEL (0x07) or ST (ESC \) terminates the sequence.
+		last := e[len(e)-1]
+		if last == 0x07 {
+			s.handleOSC(e[2 : len(e)-1])
+			s.esc = nil
+			return
+		}
+		if len(e) >= 3 && e[len(e)-2] == 0x1b && last == '\\' {
+			s.handleOSC(e[2 : len(e)-2])
+			s.esc = nil
+			return
+		}
+		if len(e) > 256 {
+			s.esc = nil // safety valve
+		}
+		return
+	}
+
 	if e[1] != '[' && e[1] != '7' && e[1] != '8' && e[1] != 'c' {
 		// Unknown ESC byte — consume and reset if it's a terminator.
 		if e[1] >= 0x40 && e[1] <= 0x7e {

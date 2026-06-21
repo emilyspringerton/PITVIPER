@@ -201,6 +201,10 @@ func main() {
 				}
 
 			case *sdl.TextInputEvent:
+				// Snap back to live view when user types.
+				if screen.ScrollLines() > 0 {
+					screen.ScrollReset()
+				}
 				text := e.GetText()
 				_, _ = terminal.Master.WriteString(text)
 			}
@@ -210,6 +214,11 @@ func main() {
 		select {
 		case <-ticker.C:
 		default:
+		}
+
+		// Update window title from OSC sequences.
+		if t := screen.GetTitle(); t != "" {
+			win.SetTitle("PITVIPER — " + t)
 		}
 
 		renderFrame(ren, screen)

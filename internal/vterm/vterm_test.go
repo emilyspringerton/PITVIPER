@@ -174,6 +174,29 @@ func TestUTF8Rune(t *testing.T) {
 	}
 }
 
+func TestOSCWindowTitle(t *testing.T) {
+	s := New(20, 5)
+	// BEL-terminated OSC 2 (window title)
+	s.Write([]byte("\033]2;myshell\007"))
+	if s.GetTitle() != "myshell" {
+		t.Errorf("OSC2 BEL: title = %q, want myshell", s.GetTitle())
+	}
+	// ST-terminated OSC 0 (icon + title)
+	s.Write([]byte("\033]0;newtitle\033\\"))
+	if s.GetTitle() != "newtitle" {
+		t.Errorf("OSC0 ST: title = %q, want newtitle", s.GetTitle())
+	}
+	// OSC must not corrupt surrounding text
+	s.Write([]byte("AB\033]2;vim\007CD"))
+	cells, cols, _, _, _ := s.Snapshot()
+	if textAt(cells, cols, 0) != "ABCD" {
+		t.Errorf("OSC mid-stream: got %q, want ABCD", textAt(cells, cols, 0))
+	}
+	if s.GetTitle() != "vim" {
+		t.Errorf("OSC mid-stream title = %q, want vim", s.GetTitle())
+	}
+}
+
 func TestScrollbackLineSaved(t *testing.T) {
 	s := New(10, 3)
 	s.Write([]byte("LINE1\r\nLINE2\r\nLINE3\r\nLINE4")) // LINE1 scrolls off
