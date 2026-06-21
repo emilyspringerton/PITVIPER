@@ -49,6 +49,15 @@ type Screen struct {
 	Title string
 	// cursor visibility — false when ?25l is active (vim rendering mode)
 	CursorHidden bool
+	// alternate screen buffer (saved when ?1049h is received)
+	altActive    bool
+	altCells     []Cell
+	altCurRow    int
+	altCurCol    int
+	altSavedRow  int
+	altSavedCol  int
+	altFG, altBG Color
+	altBold      bool
 }
 
 // New creates a Screen of the given dimensions.
@@ -428,11 +437,33 @@ func (s *Screen) handleCSI(final byte, params string) {
 		s.curRow, s.curCol = s.savedRow, s.savedCol
 	case 'r': // set scrolling region — stub (accept but don't implement)
 	case 'h', 'l': // DEC private mode set/reset
-		// Handle ?25h (show cursor) and ?25l (hide cursor).
-		if params == "?25" {
+		switch params {
+		case "?25":
 			s.CursorHidden = (final == 'l')
+		case "?1049":
+			if final == 'h' && !s.altActive {
+				// Save primary screen and cursor, enter alternate screen.
+				s.altCells = make([]Cell, len(s.cells))
+				copy(s.altCells, s.cells)
+				s.altCurRow, s.altCurCol = s.curRow, s.curCol
+				s.altSavedRow, s.altSavedCol = s.savedRow, s.savedCol
+				s.altFG, s.altBG, s.altBold = s.fg, s.bg, s.bold
+				s.altActive = true
+				s.curRow, s.curCol = 0, 0
+				s.savedRow, s.savedCol = 0, 0
+				s.fg, s.bg, s.bold = ColorDefault, ColorDefault, false
+				s.clear(0, len(s.cells), len(s.cells))
+			} else if final == 'l' && s.altActive {
+				// Restore primary screen and cursor.
+				copy(s.cells, s.altCells)
+				s.curRow, s.curCol = s.altCurRow, s.altCurCol
+				s.savedRow, s.savedCol = s.altSavedRow, s.altSavedCol
+				s.fg, s.bg, s.bold = s.altFG, s.altBG, s.altBold
+				s.altActive = false
+				s.altCells = nil
+			}
 		}
-		// All other h/l modes ignored (e.g. ?1049h for alternate screen).
+		// All other modes ignored.
 	}
 }
 

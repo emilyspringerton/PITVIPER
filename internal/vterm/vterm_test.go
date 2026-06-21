@@ -174,6 +174,34 @@ func TestUTF8Rune(t *testing.T) {
 	}
 }
 
+func TestAlternateScreen(t *testing.T) {
+	s := New(20, 5)
+	s.Write([]byte("PRIMARY"))
+	cells, cols, _, _, _ := s.Snapshot()
+	if textAt(cells, cols, 0) != "PRIMARY" {
+		t.Fatalf("before alt: row 0 = %q, want PRIMARY", textAt(cells, cols, 0))
+	}
+
+	// Enter alternate screen — primary content should be saved, screen cleared.
+	s.Write([]byte("\033[?1049h"))
+	cells, cols, _, curRow, curCol := s.Snapshot()
+	if textAt(cells, cols, 0) != "" {
+		t.Errorf("alt screen: row 0 = %q, want empty", textAt(cells, cols, 0))
+	}
+	if curRow != 0 || curCol != 0 {
+		t.Errorf("alt screen cursor: (%d,%d), want (0,0)", curRow, curCol)
+	}
+
+	s.Write([]byte("ALTERNATE"))
+
+	// Leave alternate screen — primary content restored.
+	s.Write([]byte("\033[?1049l"))
+	cells, cols, _, _, _ = s.Snapshot()
+	if textAt(cells, cols, 0) != "PRIMARY" {
+		t.Errorf("after alt: row 0 = %q, want PRIMARY", textAt(cells, cols, 0))
+	}
+}
+
 func TestCursorVisibility(t *testing.T) {
 	s := New(20, 5)
 	// Default: cursor visible
