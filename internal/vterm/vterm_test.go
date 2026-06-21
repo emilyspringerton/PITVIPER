@@ -174,6 +174,38 @@ func TestUTF8Rune(t *testing.T) {
 	}
 }
 
+func TestCSICNLCPLECH(t *testing.T) {
+	// CNL (CSI E): cursor next line N, col=0
+	s := New(20, 5)
+	s.Write([]byte("START"))
+	s.Write([]byte("\033[2E")) // down 2 rows, col=0
+	_, _, _, curRow, curCol := s.Snapshot()
+	if curRow != 2 || curCol != 0 {
+		t.Errorf("CNL: cursor at (%d,%d), want (2,0)", curRow, curCol)
+	}
+
+	// CPL (CSI F): cursor previous line N, col=0
+	s.Write([]byte("\033[1F")) // up 1 row, col=0
+	_, _, _, curRow, curCol = s.Snapshot()
+	if curRow != 1 || curCol != 0 {
+		t.Errorf("CPL: cursor at (%d,%d), want (1,0)", curRow, curCol)
+	}
+
+	// ECH (CSI X): erase N chars at cursor, no movement
+	s2 := New(20, 5)
+	s2.Write([]byte("ABCDEFGHIJ"))
+	s2.Write([]byte("\033[1;4H")) // cursor to col 3 (0-indexed)
+	s2.Write([]byte("\033[3X"))   // erase 3 chars → D,E,F blanked; cursor stays at col 3
+	cells, cols, _, _, curCol2 := s2.Snapshot()
+	if curCol2 != 3 {
+		t.Errorf("ECH: cursor stayed at %d, want 3", curCol2)
+	}
+	row0 := textAt(cells, cols, 0)
+	if !strings.HasPrefix(row0, "ABC") || !strings.Contains(row0, "GHI") {
+		t.Errorf("ECH: row0 = %q, want ABC followed by blank then GHI", row0)
+	}
+}
+
 func TestCSIInsertDeleteLine(t *testing.T) {
 	// CSI L: insert line at cursor — rows from cursor down shift down, cursor row blanked.
 	s := New(10, 4)

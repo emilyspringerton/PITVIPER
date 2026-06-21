@@ -453,6 +453,22 @@ func (s *Screen) handleCSI(final byte, params string) {
 		if s.curCol < 0 {
 			s.curCol = 0
 		}
+	case 'E': // CNL — cursor next line N (move down N rows, col=0)
+		n := numOr1(nums, 0)
+		s.curRow = clamp(s.curRow+n, 0, s.rows-1)
+		s.curCol = 0
+	case 'F': // CPL — cursor previous line N (move up N rows, col=0)
+		n := numOr1(nums, 0)
+		s.curRow = clamp(s.curRow-n, 0, s.rows-1)
+		s.curCol = 0
+	case 'X': // ECH — erase N characters at cursor (no cursor movement)
+		n := numOr1(nums, 0)
+		blank := Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
+		start := s.curRow*s.cols + s.curCol
+		end := min2(start+n, (s.curRow+1)*s.cols)
+		for i := start; i < end; i++ {
+			s.cells[i] = blank
+		}
 	case 'G': // CHA — cursor horizontal absolute (1-indexed column)
 		col := 0
 		if len(nums) >= 1 && nums[0] > 0 {
