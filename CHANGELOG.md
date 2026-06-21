@@ -1,4 +1,5 @@
 ## 2026-06-21
+- feat: S58-01 HT tab stop + TestTabStop — 27 vterm tests (Apple #2387)
 - feat: S55-02 IsAltActive() + TestIsAltActive + TestSGRDefaultColors — 26 tests (Apple #2377)
 - test: S55-01 TestEraseInDisplay 0J/1J — 24 vterm tests (Apple #2375)
 - feat: S52-01 DECSTBM scroll region + ESC M reverse index + TestDECSTBM + TestReverseIndex (Apple #2361)
