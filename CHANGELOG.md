@@ -1,4 +1,5 @@
 ## 2026-06-21
+- feat: S63-01 CSI L/M insert/delete line; 30 vterm tests (Apple #2398)
 - feat: S59-01 CSI S/T/P/@ scroll and char-edit operations; 29 vterm tests (Apple #2389)
 - feat: S58-01 HT tab stop + TestTabStop — 27 vterm tests (Apple #2387)
 - feat: S55-02 IsAltActive() + TestIsAltActive + TestSGRDefaultColors — 26 tests (Apple #2377)
