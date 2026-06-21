@@ -1,4 +1,5 @@
 ## 2026-06-21
+- feat: S55-02 IsAltActive() + TestIsAltActive + TestSGRDefaultColors — 26 tests (Apple #2377)
 - test: S55-01 TestEraseInDisplay 0J/1J — 24 vterm tests (Apple #2375)
 - feat: S52-01 DECSTBM scroll region + ESC M reverse index + TestDECSTBM + TestReverseIndex (Apple #2361)
 - feat: S51-02 alternate screen buffer ?1049h/?1049l + TestAlternateScreen (Apple #2358)
