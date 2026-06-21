@@ -47,6 +47,8 @@ type Screen struct {
 	scrollTop int // lines scrolled back from live view (0 = live)
 	// window title (from OSC 0/1/2 sequences)
 	Title string
+	// cursor visibility — false when ?25l is active (vim rendering mode)
+	CursorHidden bool
 }
 
 // New creates a Screen of the given dimensions.
@@ -425,7 +427,12 @@ func (s *Screen) handleCSI(final byte, params string) {
 	case 'u': // restore cursor
 		s.curRow, s.curCol = s.savedRow, s.savedCol
 	case 'r': // set scrolling region — stub (accept but don't implement)
-	case 'h', 'l': // mode set/reset — ignore (handles ?1049h etc)
+	case 'h', 'l': // DEC private mode set/reset
+		// Handle ?25h (show cursor) and ?25l (hide cursor).
+		if params == "?25" {
+			s.CursorHidden = (final == 'l')
+		}
+		// All other h/l modes ignored (e.g. ?1049h for alternate screen).
 	}
 }
 
@@ -485,6 +492,9 @@ func (s *Screen) Snapshot() (cells []Cell, cols, rows, curRow, curCol int) {
 	if s.scrollTop == 0 {
 		// Live view — fast path.
 		copy(out, s.cells)
+		if s.CursorHidden {
+			return out, cols, rows, -1, -1
+		}
 		return out, cols, rows, s.curRow, s.curCol
 	}
 

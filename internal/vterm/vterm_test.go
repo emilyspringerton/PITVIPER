@@ -174,6 +174,28 @@ func TestUTF8Rune(t *testing.T) {
 	}
 }
 
+func TestCursorVisibility(t *testing.T) {
+	s := New(20, 5)
+	// Default: cursor visible
+	if s.CursorHidden {
+		t.Error("expected cursor visible by default")
+	}
+	// ESC [?25l — hide cursor
+	s.Write([]byte("\033[?25l"))
+	if !s.CursorHidden {
+		t.Error("expected cursor hidden after \\033[?25l")
+	}
+	_, _, _, curRow, curCol := s.Snapshot()
+	if curRow != -1 || curCol != -1 {
+		t.Errorf("Snapshot with hidden cursor: (%d,%d), want (-1,-1)", curRow, curCol)
+	}
+	// ESC [?25h — show cursor again
+	s.Write([]byte("\033[?25h"))
+	if s.CursorHidden {
+		t.Error("expected cursor visible after \\033[?25h")
+	}
+}
+
 func TestOSCWindowTitle(t *testing.T) {
 	s := New(20, 5)
 	// BEL-terminated OSC 2 (window title)
