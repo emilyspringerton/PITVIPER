@@ -1,4 +1,5 @@
 ## 2026-06-21
+- feat: S64-01 CSI E/F/X (CNL/CPL/ECH); 31 vterm tests (Apple #2400)
 - feat: S63-01 CSI L/M insert/delete line; 30 vterm tests (Apple #2398)
 - feat: S59-01 CSI S/T/P/@ scroll and char-edit operations; 29 vterm tests (Apple #2389)
 - feat: S58-01 HT tab stop + TestTabStop — 27 vterm tests (Apple #2387)
