@@ -42,11 +42,20 @@ type Screen struct {
 	// UTF-8 accumulator for multi-byte sequences
 	utf8Buf [4]byte
 	utf8Len int
+	// scrollback buffer and view offset
+	sb        *scrollbackBuf
+	scrollTop int // lines scrolled back from live view (0 = live)
 }
 
 // New creates a Screen of the given dimensions.
 func New(cols, rows int) *Screen {
-	s := &Screen{cols: cols, rows: rows, fg: ColorDefault, bg: ColorDefault}
+	s := &Screen{
+		cols: cols,
+		rows: rows,
+		fg:   ColorDefault,
+		bg:   ColorDefault,
+		sb:   newScrollbackBuf(MaxScrollback),
+	}
 	s.cells = make([]Cell, cols*rows)
 	s.clear(0, 0, cols*rows)
 	return s
@@ -202,8 +211,16 @@ func (s *Screen) putChar(ch rune) {
 
 func (s *Screen) scrollUp(n int) {
 	if n >= s.rows {
+		// Save all rows to scrollback then clear.
+		for r := 0; r < s.rows; r++ {
+			s.sb.push(s.cells[r*s.cols : (r+1)*s.cols])
+		}
 		s.clear(0, s.cols*s.rows, s.cols*s.rows)
 		return
+	}
+	// Save the n rows scrolling off the top.
+	for r := 0; r < n; r++ {
+		s.sb.push(s.cells[r*s.cols : (r+1)*s.cols])
 	}
 	copy(s.cells, s.cells[n*s.cols:])
 	blank := Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
@@ -403,13 +420,90 @@ func (s *Screen) handleSGR(nums []int) {
 	}
 }
 
-// Snapshot copies the screen state for rendering. Caller must not modify the returned slice.
+// Snapshot copies the screen state for rendering.
+// When scrollTop > 0, the returned cells show historical lines composited with the live screen.
+// curRow/curCol are set to -1/-1 when the cursor is scrolled out of view.
 func (s *Screen) Snapshot() (cells []Cell, cols, rows, curRow, curCol int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]Cell, len(s.cells))
-	copy(out, s.cells)
-	return out, s.cols, s.rows, s.curRow, s.curCol
+
+	cols, rows = s.cols, s.rows
+	out := make([]Cell, rows*cols)
+	blank := Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
+
+	if s.scrollTop == 0 {
+		// Live view — fast path.
+		copy(out, s.cells)
+		return out, cols, rows, s.curRow, s.curCol
+	}
+
+	// Composite: fill rows from scrollback and live screen.
+	// scrollTop lines from scrollback (newest first), then live rows.
+	sbLen := s.sb.Len()
+	for row := 0; row < rows; row++ {
+		// How many lines back from the bottom of the scrollback is this row?
+		// Row 0 of the visible window maps to scrollback index (sbLen - scrollTop + row).
+		sbIdx := sbLen - s.scrollTop + row
+		dstStart := row * cols
+		if sbIdx >= 0 && sbIdx < sbLen {
+			srcLine := s.sb.line(sbIdx)
+			n := copy(out[dstStart:dstStart+cols], srcLine)
+			// Pad short lines.
+			for i := dstStart + n; i < dstStart+cols; i++ {
+				out[i] = blank
+			}
+		} else if sbIdx >= sbLen {
+			// This row is in the live screen.
+			liveRow := sbIdx - sbLen
+			if liveRow < rows {
+				copy(out[dstStart:dstStart+cols], s.cells[liveRow*cols:(liveRow+1)*cols])
+			}
+		} else {
+			// Before the start of scrollback — blank.
+			for i := dstStart; i < dstStart+cols; i++ {
+				out[i] = blank
+			}
+		}
+	}
+
+	// Cursor is not visible when scrolled back.
+	return out, cols, rows, -1, -1
+}
+
+// ScrollBy scrolls the view by n lines (positive = scroll up into history, negative = scroll down).
+// Clamped to [0, scrollback length].
+// Resets to live view automatically when reaching the bottom (scrollTop=0).
+func (s *Screen) ScrollBy(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.scrollTop += n
+	if s.scrollTop < 0 {
+		s.scrollTop = 0
+	}
+	if s.scrollTop > s.sb.Len() {
+		s.scrollTop = s.sb.Len()
+	}
+}
+
+// ScrollReset snaps back to the live terminal view (scrollTop=0).
+func (s *Screen) ScrollReset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.scrollTop = 0
+}
+
+// ScrollLines returns the current scroll offset (0 = live view).
+func (s *Screen) ScrollLines() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.scrollTop
+}
+
+// ScrollbackLen returns the number of lines saved in the scrollback buffer.
+func (s *Screen) ScrollbackLen() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sb.Len()
 }
 
 func parseNums(s string) []int {

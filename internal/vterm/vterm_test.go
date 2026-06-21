@@ -174,6 +174,62 @@ func TestUTF8Rune(t *testing.T) {
 	}
 }
 
+func TestScrollbackLineSaved(t *testing.T) {
+	s := New(10, 3)
+	s.Write([]byte("LINE1\r\nLINE2\r\nLINE3\r\nLINE4")) // LINE1 scrolls off
+	if s.ScrollbackLen() < 1 {
+		t.Fatalf("expected scrollback to have ≥1 line, got %d", s.ScrollbackLen())
+	}
+}
+
+func TestScrollbackView(t *testing.T) {
+	s := New(10, 2)
+	// Write 3 lines into a 2-row screen → LINE1 scrolls to scrollback, visible: LINE2+LINE3
+	s.Write([]byte("LINE1     \r\nLINE2     \r\nLINE3     "))
+
+	// Without scrolling: live view shows LINE2 and LINE3
+	cells, cols, _, curRow, _ := s.Snapshot()
+	if textAt(cells, cols, 0) != "LINE2" {
+		t.Fatalf("live row 0: got %q, want LINE2", textAt(cells, cols, 0))
+	}
+	if curRow < 0 {
+		t.Error("live view should show cursor")
+	}
+
+	// Scroll back 1 line: should show LINE1 and LINE2
+	s.ScrollBy(1)
+	cells, cols, _, curRow, _ = s.Snapshot()
+	if textAt(cells, cols, 0) != "LINE1" {
+		t.Fatalf("scrolled row 0: got %q, want LINE1", textAt(cells, cols, 0))
+	}
+	if curRow != -1 {
+		t.Errorf("scrolled view should hide cursor (curRow=%d)", curRow)
+	}
+
+	// Reset scroll — cursor reappears
+	s.ScrollReset()
+	cells, cols, _, curRow, _ = s.Snapshot()
+	if textAt(cells, cols, 0) != "LINE2" {
+		t.Fatalf("after reset, row 0: got %q, want LINE2", textAt(cells, cols, 0))
+	}
+	if curRow < 0 {
+		t.Error("after reset, cursor should be visible")
+	}
+}
+
+func TestScrollByClamp(t *testing.T) {
+	s := New(5, 2)
+	s.Write([]byte("AAAAA\r\nBBBBB\r\nCCCCC")) // 1 line in scrollback
+	s.ScrollBy(MaxScrollback + 100)             // over-scroll
+	if s.ScrollLines() != s.ScrollbackLen() {
+		t.Errorf("over-scroll: scrollLines=%d, want %d", s.ScrollLines(), s.ScrollbackLen())
+	}
+	s.ScrollBy(-MaxScrollback) // under-scroll to 0
+	if s.ScrollLines() != 0 {
+		t.Errorf("under-scroll: scrollLines=%d, want 0", s.ScrollLines())
+	}
+}
+
 func TestResize(t *testing.T) {
 	s := New(10, 5)
 	s.Write([]byte("hello"))

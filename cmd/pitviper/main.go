@@ -195,7 +195,9 @@ func main() {
 
 			case *sdl.KeyboardEvent:
 				if e.Type == sdl.KEYDOWN {
-					writeKey(terminal.Master, e)
+					if scrollHandled := handleScrollKey(screen, e); !scrollHandled {
+						writeKey(terminal.Master, e)
+					}
 				}
 
 			case *sdl.TextInputEvent:
@@ -258,6 +260,33 @@ func renderFrame(ren *sdl.Renderer, screen *vterm.Screen) {
 	}
 
 	ren.Present()
+}
+
+// handleScrollKey handles Shift+PageUp/Down for scrollback. Returns true if consumed.
+func handleScrollKey(screen *vterm.Screen, e *sdl.KeyboardEvent) bool {
+	shift := e.Keysym.Mod&sdl.KMOD_SHIFT != 0
+	if !shift {
+		return false
+	}
+	switch e.Keysym.Sym {
+	case sdl.K_PAGEUP:
+		screen.ScrollBy(defaultRows / 2)
+		return true
+	case sdl.K_PAGEDOWN:
+		screen.ScrollBy(-(defaultRows / 2))
+		return true
+	case sdl.K_HOME:
+		screen.ScrollBy(vterm.MaxScrollback)
+		return true
+	case sdl.K_END:
+		screen.ScrollReset()
+		return true
+	}
+	// Any non-scroll keypress snaps back to live view.
+	if screen.ScrollLines() > 0 {
+		screen.ScrollReset()
+	}
+	return false
 }
 
 // writeKey translates SDL keyboard events into PTY input bytes.
