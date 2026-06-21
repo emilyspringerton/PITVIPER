@@ -174,6 +174,37 @@ func TestUTF8Rune(t *testing.T) {
 	}
 }
 
+func TestEraseInDisplay(t *testing.T) {
+	// ESC [0J — erase from cursor to end of screen
+	s := New(5, 3)
+	s.Write([]byte("AAAAA\r\nBBBBB\r\nCCCCC"))
+	s.Write([]byte("\033[2;3H")) // row 2, col 3 (1-indexed) → (1,2) 0-indexed
+	s.Write([]byte("\033[0J"))   // erase from cursor to end
+	cells, cols, _, _, _ := s.Snapshot()
+	if textAt(cells, cols, 0) != "AAAAA" {
+		t.Errorf("0J: row 0 = %q, want AAAAA", textAt(cells, cols, 0))
+	}
+	r1 := textAt(cells, cols, 1)
+	if len(r1) >= 3 && r1[2] != ' ' {
+		t.Errorf("0J: row 1 col 2 should be blank after 0J, got %q", r1)
+	}
+
+	// ESC [1J — erase from beginning to cursor
+	s2 := New(5, 3)
+	s2.Write([]byte("AAAAA\r\nBBBBB\r\nCCCCC"))
+	s2.Write([]byte("\033[2;3H")) // row 2, col 3 (1-indexed) → (1,2) 0-indexed
+	s2.Write([]byte("\033[1J"))   // erase from start to cursor
+	cells2, cols2, _, _, _ := s2.Snapshot()
+	// Row 0 should be blank.
+	if textAt(cells2, cols2, 0) != "" {
+		t.Errorf("1J: row 0 = %q, want blank", textAt(cells2, cols2, 0))
+	}
+	// Row 2 (CCCCC) should be untouched.
+	if textAt(cells2, cols2, 2) != "CCCCC" {
+		t.Errorf("1J: row 2 = %q, want CCCCC", textAt(cells2, cols2, 2))
+	}
+}
+
 func TestDECSTBM(t *testing.T) {
 	// 5 rows; set scrolling region to rows 2-4 (1-indexed = top=2, bot=4 → 0-indexed 1..3)
 	s := New(10, 5)
