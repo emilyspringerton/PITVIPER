@@ -102,6 +102,65 @@ func TestBackspace(t *testing.T) {
 	}
 }
 
+func TestSGRBold(t *testing.T) {
+	s := New(10, 5)
+	s.Write([]byte("\x1b[1mB\x1b[0mn")) // bold B, then reset, then n
+	cells, _, _, _, _ := s.Snapshot()
+	if !cells[0].Bold {
+		t.Fatal("expected Bold=true for first char")
+	}
+	if cells[1].Bold {
+		t.Fatal("expected Bold=false after reset")
+	}
+}
+
+func TestSGR256Color(t *testing.T) {
+	s := New(10, 5)
+	s.Write([]byte("\x1b[38;5;200mX")) // xterm-256 fg=200
+	cells, _, _, _, _ := s.Snapshot()
+	if cells[0].FG != 200 {
+		t.Fatalf("expected FG=200, got %d", cells[0].FG)
+	}
+}
+
+func TestCursorUpDown(t *testing.T) {
+	s := New(10, 5)
+	s.Write([]byte("\x1b[3;1H"))  // cursor to row 3, col 1
+	s.Write([]byte("\x1b[1A"))    // cursor up 1 → row 2
+	_, _, _, curRow, _ := s.Snapshot()
+	if curRow != 1 { // 0-indexed
+		t.Fatalf("expected row 1, got %d", curRow)
+	}
+	s.Write([]byte("\x1b[2B")) // cursor down 2 → row 3
+	_, _, _, curRow, _ = s.Snapshot()
+	if curRow != 3 {
+		t.Fatalf("expected row 3, got %d", curRow)
+	}
+}
+
+func TestEraseInLine(t *testing.T) {
+	s := New(10, 5)
+	s.Write([]byte("hello"))
+	s.Write([]byte("\x1b[1G")) // cursor to col 1 (1-indexed)
+	s.Write([]byte("\x1b[K"))  // erase from cursor to end of line
+	cells, cols, _, _, _ := s.Snapshot()
+	if textAt(cells, cols, 0) != "" {
+		t.Fatalf("expected blank line after EL, got %q", textAt(cells, cols, 0))
+	}
+}
+
+func TestSavRestoreCursor(t *testing.T) {
+	s := New(20, 5)
+	s.Write([]byte("\x1b[2;5H")) // row 2, col 5
+	s.Write([]byte("\x1b7"))     // save
+	s.Write([]byte("\x1b[1;1H")) // move elsewhere
+	s.Write([]byte("\x1b8"))     // restore
+	_, _, _, curRow, curCol := s.Snapshot()
+	if curRow != 1 || curCol != 4 { // 0-indexed
+		t.Fatalf("after restore: (%d,%d), want (1,4)", curRow, curCol)
+	}
+}
+
 func TestUTF8Rune(t *testing.T) {
 	s := New(20, 5)
 	// "café" — e followed by 3-byte UTF-8 'é' (U+00E9 = 0xC3 0xA9)

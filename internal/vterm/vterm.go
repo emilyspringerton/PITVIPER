@@ -294,6 +294,18 @@ func (s *Screen) handleCSI(final byte, params string) {
 		if s.curCol < 0 {
 			s.curCol = 0
 		}
+	case 'G': // CHA — cursor horizontal absolute (1-indexed column)
+		col := 0
+		if len(nums) >= 1 && nums[0] > 0 {
+			col = nums[0] - 1
+		}
+		s.curCol = clamp(col, 0, s.cols-1)
+	case 'd': // VPA — vertical position absolute (1-indexed row)
+		row := 0
+		if len(nums) >= 1 && nums[0] > 0 {
+			row = nums[0] - 1
+		}
+		s.curRow = clamp(row, 0, s.rows-1)
 	case 'H', 'f': // cursor position
 		row := 0
 		col := 0
