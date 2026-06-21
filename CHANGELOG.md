@@ -1,4 +1,5 @@
 ## 2026-06-21
+- feat: S51-01 cursor visibility ?25l/?25h + TestCursorVisibility (Apple #2355)
 - feat: S47-01/02 OSC window title + snap-to-live on TextInput (Apple #2331)
 - feat: S45-05 10,000-line scrollback buffer + Shift+PageUp/Down (Apple #2328)
 - feat: S45-04 full SGR + cursor escape sequence parser, 14 vterm tests pass (Apple #2318)
