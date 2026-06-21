@@ -1,4 +1,5 @@
 ## 2026-06-21
+- feat: S45-05 10,000-line scrollback buffer + Shift+PageUp/Down (Apple #2328)
 - feat: S45-04 full SGR + cursor escape sequence parser, 14 vterm tests pass (Apple #2318)
 - feat: S45-03 UTF-8 decode in vterm + ASCII glyph atlas pre-render (Apple #2315)
 
