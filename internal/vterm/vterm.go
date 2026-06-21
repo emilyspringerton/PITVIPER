@@ -184,6 +184,12 @@ func (s *Screen) Write(data []byte) {
 			if s.curCol > 0 {
 				s.curCol--
 			}
+		case '\t': // HT — advance to next 8-column tab stop
+			next := (s.curCol/8 + 1) * 8
+			if next >= s.cols {
+				next = s.cols - 1
+			}
+			s.curCol = next
 		case 7: // BEL — ignore
 		case 0: // NUL — ignore
 		default:

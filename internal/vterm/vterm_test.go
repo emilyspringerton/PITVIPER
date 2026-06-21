@@ -174,6 +174,22 @@ func TestUTF8Rune(t *testing.T) {
 	}
 }
 
+func TestTabStop(t *testing.T) {
+	s := New(40, 5)
+	// Tab from col 0 → col 8
+	s.Write([]byte("A\tB"))
+	_, _, _, _, curCol := s.Snapshot()
+	if curCol != 9 { // A at 0, tab→8, B at 8 → cursor at 9
+		t.Errorf("after A tab B: curCol=%d, want 9", curCol)
+	}
+	// Tab from col 9 → col 16
+	s.Write([]byte("\tC"))
+	_, _, _, _, curCol = s.Snapshot()
+	if curCol != 17 {
+		t.Errorf("after second tab: curCol=%d, want 17", curCol)
+	}
+}
+
 func TestIsAltActive(t *testing.T) {
 	s := New(20, 5)
 	if s.IsAltActive() {
