@@ -37,6 +37,9 @@ type Screen struct {
 	fg   Color
 	bg   Color
 	bold bool
+	// scrolling region (DECSTBM, inclusive 0-indexed). Default: [0, rows-1].
+	scrollRegTop int
+	scrollRegBot int
 	// escape buffer
 	esc []byte
 	// UTF-8 accumulator for multi-byte sequences
@@ -63,11 +66,13 @@ type Screen struct {
 // New creates a Screen of the given dimensions.
 func New(cols, rows int) *Screen {
 	s := &Screen{
-		cols: cols,
-		rows: rows,
-		fg:   ColorDefault,
-		bg:   ColorDefault,
-		sb:   newScrollbackBuf(MaxScrollback),
+		cols:         cols,
+		rows:         rows,
+		fg:           ColorDefault,
+		bg:           ColorDefault,
+		sb:           newScrollbackBuf(MaxScrollback),
+		scrollRegTop: 0,
+		scrollRegBot: rows - 1,
 	}
 	s.cells = make([]Cell, cols*rows)
 	s.clear(0, 0, cols*rows)
@@ -171,9 +176,9 @@ func (s *Screen) Write(data []byte) {
 			s.curCol = 0
 		case '\n':
 			s.curRow++
-			if s.curRow >= s.rows {
+			if s.curRow > s.scrollRegBot {
 				s.scrollUp(1)
-				s.curRow = s.rows - 1
+				s.curRow = s.scrollRegBot
 			}
 		case '\b':
 			if s.curCol > 0 {
@@ -237,9 +242,9 @@ func (s *Screen) putChar(ch rune) {
 	if s.curCol >= s.cols {
 		s.curCol = 0
 		s.curRow++
-		if s.curRow >= s.rows {
+		if s.curRow > s.scrollRegBot {
 			s.scrollUp(1)
-			s.curRow = s.rows - 1
+			s.curRow = s.scrollRegBot
 		}
 	}
 	s.cells[s.curRow*s.cols+s.curCol] = Cell{
@@ -252,23 +257,74 @@ func (s *Screen) putChar(ch rune) {
 }
 
 func (s *Screen) scrollUp(n int) {
-	if n >= s.rows {
-		// Save all rows to scrollback then clear.
-		for r := 0; r < s.rows; r++ {
+	top := s.scrollRegTop
+	bot := s.scrollRegBot
+
+	// Full-screen scroll with default region — save to scrollback.
+	if top == 0 && bot == s.rows-1 {
+		if n >= s.rows {
+			for r := 0; r < s.rows; r++ {
+				s.sb.push(s.cells[r*s.cols : (r+1)*s.cols])
+			}
+			s.clear(0, s.cols*s.rows, s.cols*s.rows)
+			return
+		}
+		for r := 0; r < n; r++ {
 			s.sb.push(s.cells[r*s.cols : (r+1)*s.cols])
 		}
-		s.clear(0, s.cols*s.rows, s.cols*s.rows)
+		copy(s.cells, s.cells[n*s.cols:])
+		blank := Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
+		start := (s.rows - n) * s.cols
+		for i := start; i < s.rows*s.cols; i++ {
+			s.cells[i] = blank
+		}
 		return
 	}
-	// Save the n rows scrolling off the top.
-	for r := 0; r < n; r++ {
-		s.sb.push(s.cells[r*s.cols : (r+1)*s.cols])
+
+	// Scroll within restricted region — no scrollback save.
+	height := bot - top + 1
+	if n >= height {
+		// Clear entire region.
+		for r := top; r <= bot; r++ {
+			for c := 0; c < s.cols; c++ {
+				s.cells[r*s.cols+c] = Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
+			}
+		}
+		return
 	}
-	copy(s.cells, s.cells[n*s.cols:])
-	blank := Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
-	start := (s.rows - n) * s.cols
-	for i := start; i < s.rows*s.cols; i++ {
-		s.cells[i] = blank
+	// Shift rows up within [top, bot].
+	for r := top; r <= bot-n; r++ {
+		copy(s.cells[r*s.cols:(r+1)*s.cols], s.cells[(r+n)*s.cols:(r+n+1)*s.cols])
+	}
+	for r := bot - n + 1; r <= bot; r++ {
+		for c := 0; c < s.cols; c++ {
+			s.cells[r*s.cols+c] = Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
+		}
+	}
+}
+
+// scrollDown scrolls the content in the scroll region down by n lines,
+// inserting blank lines at the top. Used by ESC M (RI) reverse index.
+func (s *Screen) scrollDown(n int) {
+	top := s.scrollRegTop
+	bot := s.scrollRegBot
+	height := bot - top + 1
+	if n >= height {
+		for r := top; r <= bot; r++ {
+			for c := 0; c < s.cols; c++ {
+				s.cells[r*s.cols+c] = Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
+			}
+		}
+		return
+	}
+	// Shift rows down within [top, bot].
+	for r := bot; r >= top+n; r-- {
+		copy(s.cells[r*s.cols:(r+1)*s.cols], s.cells[(r-n)*s.cols:(r-n+1)*s.cols])
+	}
+	for r := top; r < top+n; r++ {
+		for c := 0; c < s.cols; c++ {
+			s.cells[r*s.cols+c] = Cell{Ch: ' ', FG: ColorDefault, BG: ColorDefault}
+		}
 	}
 }
 
@@ -299,11 +355,21 @@ func (s *Screen) handleEsc() {
 		return
 	}
 
-	if e[1] != '[' && e[1] != '7' && e[1] != '8' && e[1] != 'c' {
+	if e[1] != '[' && e[1] != '7' && e[1] != '8' && e[1] != 'c' && e[1] != 'M' {
 		// Unknown ESC byte — consume and reset if it's a terminator.
 		if e[1] >= 0x40 && e[1] <= 0x7e {
 			s.esc = nil
 		}
+		return
+	}
+	// ESC M — Reverse Index (RI): move cursor up one line, scroll down if at top of scroll region
+	if e[1] == 'M' {
+		if s.curRow == s.scrollRegTop {
+			s.scrollDown(1)
+		} else if s.curRow > 0 {
+			s.curRow--
+		}
+		s.esc = nil
 		return
 	}
 	// ESC 7 — save cursor
@@ -435,7 +501,21 @@ func (s *Screen) handleCSI(final byte, params string) {
 		s.savedRow, s.savedCol = s.curRow, s.curCol
 	case 'u': // restore cursor
 		s.curRow, s.curCol = s.savedRow, s.savedCol
-	case 'r': // set scrolling region — stub (accept but don't implement)
+	case 'r': // DECSTBM: set scrolling region (top;bot, 1-indexed)
+		top := 1
+		bot := s.rows
+		if len(nums) >= 1 && nums[0] > 0 {
+			top = nums[0]
+		}
+		if len(nums) >= 2 && nums[1] > 0 {
+			bot = nums[1]
+		}
+		t := clamp(top-1, 0, s.rows-1)
+		b := clamp(bot-1, 0, s.rows-1)
+		if t < b {
+			s.scrollRegTop, s.scrollRegBot = t, b
+			s.curRow, s.curCol = 0, 0 // DECSTBM resets cursor to (0,0)
+		}
 	case 'h', 'l': // DEC private mode set/reset
 		switch params {
 		case "?25":

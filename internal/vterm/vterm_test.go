@@ -174,6 +174,44 @@ func TestUTF8Rune(t *testing.T) {
 	}
 }
 
+func TestDECSTBM(t *testing.T) {
+	// 5 rows; set scrolling region to rows 2-4 (1-indexed = top=2, bot=4 → 0-indexed 1..3)
+	s := New(10, 5)
+	s.Write([]byte("ROW0\r\nROW1\r\nROW2\r\nROW3\r\nROW4"))
+	// Set scroll region rows 2-4 (1-indexed), then write a newline inside to force scroll.
+	// DECSTBM resets cursor to (0,0). Move cursor to bottom of region then add newline.
+	s.Write([]byte("\033[2;4r"))       // set scroll region rows 2-4
+	s.Write([]byte("\033[4;1H"))       // move to row 4, col 1
+	s.Write([]byte("\r\nSCROLLED\r\n")) // two newlines — region scrolls, not full screen
+	cells, cols, _, _, _ := s.Snapshot()
+	// Row 0 (ROW0) should be untouched — it is outside the scroll region.
+	if textAt(cells, cols, 0) != "ROW0" {
+		t.Errorf("DECSTBM: row 0 = %q, want ROW0", textAt(cells, cols, 0))
+	}
+}
+
+func TestReverseIndex(t *testing.T) {
+	s := New(10, 3)
+	// Fill screen with LINE1/LINE2/LINE3, cursor at row 0 (top).
+	s.Write([]byte("LINE1\r\nLINE2\r\nLINE3"))
+	s.Write([]byte("\033[1;1H")) // cursor to row 1, col 1 (top of screen)
+	// ESC M at top of scroll region should scroll down, inserting blank at top.
+	s.Write([]byte("\033M"))
+	cells, cols, _, _, _ := s.Snapshot()
+	// Row 0 should now be blank (inserted by scroll-down).
+	if textAt(cells, cols, 0) != "" {
+		t.Errorf("after RI: row 0 = %q, want blank", textAt(cells, cols, 0))
+	}
+	// Previous row 0 (LINE1) pushed to row 1.
+	if textAt(cells, cols, 1) != "LINE1" {
+		t.Errorf("after RI: row 1 = %q, want LINE1", textAt(cells, cols, 1))
+	}
+	// Previous row 1 (LINE2) pushed to row 2.
+	if textAt(cells, cols, 2) != "LINE2" {
+		t.Errorf("after RI: row 2 = %q, want LINE2", textAt(cells, cols, 2))
+	}
+}
+
 func TestAlternateScreen(t *testing.T) {
 	s := New(20, 5)
 	s.Write([]byte("PRIMARY"))
