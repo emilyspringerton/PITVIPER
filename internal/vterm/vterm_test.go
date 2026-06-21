@@ -174,6 +174,39 @@ func TestUTF8Rune(t *testing.T) {
 	}
 }
 
+func TestIsAltActive(t *testing.T) {
+	s := New(20, 5)
+	if s.IsAltActive() {
+		t.Error("default: IsAltActive should be false")
+	}
+	s.Write([]byte("\033[?1049h"))
+	if !s.IsAltActive() {
+		t.Error("after ?1049h: IsAltActive should be true")
+	}
+	s.Write([]byte("\033[?1049l"))
+	if s.IsAltActive() {
+		t.Error("after ?1049l: IsAltActive should be false")
+	}
+}
+
+func TestSGRDefaultColors(t *testing.T) {
+	s := New(10, 5)
+	// Set red FG and blue BG, then reset to default via ESC [39;49m
+	s.Write([]byte("\033[31;44mX")) // red FG + blue BG
+	cells, _, _, _, _ := s.Snapshot()
+	if cells[0].FG != Color(1) || cells[0].BG != Color(4) {
+		t.Fatalf("initial SGR: FG=%d BG=%d, want 1 4", cells[0].FG, cells[0].BG)
+	}
+	s.Write([]byte("\033[39;49mY")) // default FG + default BG
+	cells, _, _, _, _ = s.Snapshot()
+	if cells[1].FG != ColorDefault {
+		t.Errorf("after SGR39: FG=%d, want ColorDefault(%d)", cells[1].FG, ColorDefault)
+	}
+	if cells[1].BG != ColorDefault {
+		t.Errorf("after SGR49: BG=%d, want ColorDefault(%d)", cells[1].BG, ColorDefault)
+	}
+}
+
 func TestEraseInDisplay(t *testing.T) {
 	// ESC [0J — erase from cursor to end of screen
 	s := New(5, 3)

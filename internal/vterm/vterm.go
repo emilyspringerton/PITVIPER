@@ -217,6 +217,14 @@ func (s *Screen) handleOSC(payload []byte) {
 	}
 }
 
+// IsAltActive returns true when the alternate screen is active (ESC [?1049h received).
+// Renderers can suppress scrollback UI when vim or similar full-screen apps are running.
+func (s *Screen) IsAltActive() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.altActive
+}
+
 // GetTitle returns the current window title (from OSC sequences).
 func (s *Screen) GetTitle() string {
 	s.mu.Lock()
