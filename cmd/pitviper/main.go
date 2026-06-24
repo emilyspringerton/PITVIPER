@@ -14,11 +14,14 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"time"
 	"github.com/veandco/go-sdl2/sdl"
 
 	"pitviper/internal/font"
+	"pitviper/internal/gfdapi"
+	"pitviper/internal/mudconn"
 	"pitviper/internal/pty"
 	"pitviper/internal/vterm"
 )
@@ -52,8 +55,34 @@ var baseColors = [16]sdl.Color{
 	{R: 0xee, G: 0xee, B: 0xec, A: 0xff}, // 15 bright white
 }
 
+// GFD Channel 11 color scheme — deep black bg, gold accent, freq cyan.
+var gfdPalette = struct {
+	bg        sdl.Color
+	fg        sdl.Color
+	accent    sdl.Color // Channel 11 gold #e8c842
+	freq      sdl.Color // The Frequency cyan #4ad1d1
+	bloc      sdl.Color // The Bloc red #d14a4a
+	muted     sdl.Color
+	barBG     sdl.Color
+}{
+	bg:     sdl.Color{R: 0x0a, G: 0x0a, B: 0x0a, A: 0xff},
+	fg:     sdl.Color{R: 0xd4, G: 0xd4, B: 0xd4, A: 0xff},
+	accent: sdl.Color{R: 0xe8, G: 0xc8, B: 0x42, A: 0xff},
+	freq:   sdl.Color{R: 0x4a, G: 0xd1, B: 0xd1, A: 0xff},
+	bloc:   sdl.Color{R: 0xd1, G: 0x4a, B: 0x4a, A: 0xff},
+	muted:  sdl.Color{R: 0x44, G: 0x44, B: 0x44, A: 0xff},
+	barBG:  sdl.Color{R: 0x12, G: 0x12, B: 0x12, A: 0xff},
+}
+
 var defaultFG = sdl.Color{R: 0xdd, G: 0xdd, B: 0xdd, A: 0xff}
 var defaultBG = sdl.Color{R: 0x00, G: 0x00, B: 0x00, A: 0xff}
+
+// gfdMode is set to true when --gfd flag is active.
+var gfdMode bool
+var gfdWebmaster bool
+
+// gfdClient is the live GFD API state poller (webmaster mode only).
+var gfdClient *gfdapi.Client
 
 func sdlColor(c vterm.Color, isBold bool, isBackground bool) sdl.Color {
 	if c == vterm.ColorDefault {
@@ -90,16 +119,30 @@ func sdlColor(c vterm.Color, isBold bool, isBackground bool) sdl.Color {
 	return sdl.Color{R: v, G: v, B: v, A: 0xff}
 }
 
+// gfdBarRows is the number of character rows reserved for the Channel 11 status bar.
+const gfdBarRows = 1
+
 func main() {
 	runtime.LockOSThread()
 
-	ver := flag.Bool("version", false, "print version and exit")
-	shellFlag := flag.String("shell", "", "shell to launch (default: $SHELL or /bin/bash)")
+	ver       := flag.Bool("version",       false,            "print version and exit")
+	shellFlag := flag.String("shell",        "",              "shell to launch (default: $SHELL or /bin/bash)")
+	gfdFlag   := flag.String("gfd",          "",              "connect to GFD MUD at host:port (e.g. localhost:2323)")
+	wmFlag    := flag.Bool("gfd-webmaster",  false,           "webmaster mode — elevated display in GFD client")
 	flag.Parse()
 
 	if *ver {
 		fmt.Println("pitviper", version)
 		os.Exit(0)
+	}
+
+	gfdMode = *gfdFlag != ""
+	gfdWebmaster = *wmFlag
+
+	// Apply GFD color scheme when in MUD mode.
+	if gfdMode {
+		defaultBG = gfdPalette.bg
+		defaultFG = gfdPalette.fg
 	}
 
 	if err := sdl.Init(sdl.INIT_VIDEO | sdl.INIT_EVENTS); err != nil {
@@ -109,10 +152,22 @@ func main() {
 	defer sdl.Quit()
 
 	winW := int32(defaultCols * font.GlyphW)
-	winH := int32(defaultRows * font.GlyphH)
+	extraH := 0
+	if gfdMode {
+		extraH = gfdBarRows * font.GlyphH
+	}
+	winH := int32(defaultRows*font.GlyphH) + int32(extraH)
+
+	winTitle := "PITVIPER"
+	if gfdMode {
+		winTitle = "GoblinFoxDragon — Channel 11"
+		if gfdWebmaster {
+			winTitle += " [WEBMASTER]"
+		}
+	}
 
 	win, err := sdl.CreateWindow(
-		"PITVIPER",
+		winTitle,
 		sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
 		winW, winH,
 		sdl.WINDOW_SHOWN|sdl.WINDOW_RESIZABLE,
@@ -133,27 +188,76 @@ func main() {
 	cols, rows := defaultCols, defaultRows
 	screen := vterm.New(cols, rows)
 
-	terminal, err := pty.Open(*shellFlag, cols, rows)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "open pty:", err)
-		os.Exit(1)
+	// ── Connection: TCP MUD or PTY shell ──────────────────────────────────────
+
+	// ioReader / ioWriter are the abstract read/write ends of the connection.
+	// In PTY mode: pty.Terminal.Master. In GFD mode: mudconn.Conn.Master.
+	var (
+		ioReader  io.Reader
+		ioWriter  io.Writer
+		connClose func() error
+		connResize func(cols, rows int) error
+	)
+
+	if gfdMode {
+		addr := *gfdFlag
+		if !strings.Contains(addr, ":") {
+			addr = addr + ":2323"
+		}
+		mc, err := mudconn.Dial(addr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "GFD connect %s: %v\n", addr, err)
+			os.Exit(1)
+		}
+		ioReader   = mc.Master
+		ioWriter   = mc.Master
+		connClose  = mc.Close
+		connResize = mc.Resize
+		fmt.Printf("Connected to GFD MUD at %s\n", addr)
+	} else {
+		terminal, err := pty.Open(*shellFlag, cols, rows)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "open pty:", err)
+			os.Exit(1)
+		}
+		ioReader   = terminal.Master
+		ioWriter   = terminal.Master
+		connClose  = terminal.Close
+		connResize = terminal.Resize
+		_ = connResize // suppress unused warning
+		defer terminal.Close()
 	}
-	defer terminal.Close()
+	defer connClose()
+
+	// Start GFD API state poller in webmaster mode.
+	if gfdMode && gfdWebmaster {
+		gfdClient = gfdapi.NewClient(gfdapi.Config{
+			IDUNABase: "http://localhost:8080",
+			MUDAddr:   *gfdFlag,
+			Token:     os.Getenv("GFD_TOKEN"),
+		})
+		gfdClient.Start()
+		defer gfdClient.Stop()
+	}
 
 	var running atomic.Bool
 	running.Store(true)
 
-	// Read PTY master → write to vterm.
+	// Read from connection (PTY or TCP) → write to vterm.
 	go func() {
 		buf := make([]byte, 4096)
 		for running.Load() {
-			n, err := terminal.Master.Read(buf)
+			n, err := ioReader.Read(buf)
 			if n > 0 {
 				screen.Write(buf[:n])
 			}
 			if err != nil {
 				if err != io.EOF {
-					fmt.Fprintln(os.Stderr, "pty read:", err)
+					label := "pty"
+					if gfdMode {
+						label = "gfd"
+					}
+					fmt.Fprintln(os.Stderr, label+" read:", err)
 				}
 				running.Store(false)
 				return
@@ -189,14 +293,16 @@ func main() {
 					if newCols != cols || newRows != rows {
 						cols, rows = newCols, newRows
 						screen.Resize(cols, rows)
-						_ = terminal.Resize(cols, rows)
+						if connResize != nil {
+							_ = connResize(cols, rows)
+						}
 					}
 				}
 
 			case *sdl.KeyboardEvent:
 				if e.Type == sdl.KEYDOWN {
 					if scrollHandled := handleScrollKey(screen, e); !scrollHandled {
-						writeKey(terminal.Master, e)
+						writeKey(ioWriter, e)
 					}
 				}
 
@@ -206,7 +312,11 @@ func main() {
 					screen.ScrollReset()
 				}
 				text := e.GetText()
-				_, _ = terminal.Master.WriteString(text)
+				if w, ok := ioWriter.(interface{ WriteString(string) (int, error) }); ok {
+					_, _ = w.WriteString(text)
+				} else {
+					_, _ = ioWriter.Write([]byte(text))
+				}
 			}
 		}
 
@@ -216,12 +326,76 @@ func main() {
 		default:
 		}
 
-		// Update window title from OSC sequences.
-		if t := screen.GetTitle(); t != "" {
-			win.SetTitle("PITVIPER — " + t)
+		// Update window title from OSC sequences (PTY mode only — GFD title is fixed).
+		if !gfdMode {
+			if t := screen.GetTitle(); t != "" {
+				win.SetTitle("PITVIPER — " + t)
+			}
 		}
 
 		renderFrame(ren, screen)
+		if gfdMode {
+			renderGFDBar(ren)
+		}
+	}
+}
+
+// renderGFDBar draws the Channel 11 status bar at the bottom of the window.
+func renderGFDBar(ren *sdl.Renderer) {
+	winW, winH, _ := ren.GetOutputSize()
+	barH := int32(gfdBarRows * font.GlyphH)
+	barY := winH - barH
+
+	_ = ren.SetDrawColor(gfdPalette.barBG.R, gfdPalette.barBG.G, gfdPalette.barBG.B, 0xff)
+	_ = ren.FillRect(&sdl.Rect{X: 0, Y: barY, W: winW, H: barH})
+
+	_ = ren.SetDrawColor(gfdPalette.accent.R, gfdPalette.accent.G, gfdPalette.accent.B, 0xff)
+	_ = ren.DrawLine(0, barY, winW, barY)
+
+	label := "* LIVE  CHANNEL 11"
+	if gfdWebmaster {
+		label = "* LIVE  CHANNEL 11  [WEBMASTER]"
+	}
+	renderBarText(ren, label, 4, barY+2, gfdPalette.accent)
+
+	// Live API state (webmaster mode only).
+	if gfdWebmaster && gfdClient != nil {
+		state := gfdClient.Snapshot()
+		gearColor := gfdPalette.freq
+		if state.EmilyGear == "REST" {
+			gearColor = gfdPalette.muted
+		} else if state.EmilyGear == "UNKNOWN" {
+			gearColor = gfdPalette.bloc
+		}
+		gearLabel := "EMILY:" + state.EmilyGear
+		renderBarText(ren, gearLabel, 4+int32((len(label)+2)*font.GlyphW), barY+2, gearColor)
+
+		if state.TierName != "" {
+			tierX := 4 + int32((len(label)+len(gearLabel)+4)*font.GlyphW)
+			renderBarText(ren, "["+state.TierName+"]", tierX, barY+2, gfdPalette.freq)
+		}
+	}
+
+	ts := time.Now().Format("15:04:05")
+	tsX := winW - int32((len(ts)+2)*font.GlyphW)
+	if tsX > 0 {
+		renderBarText(ren, ts, tsX, barY+2, gfdPalette.muted)
+	}
+}
+
+// renderBarText draws a plain ASCII string into the bar using the glyph atlas.
+func renderBarText(ren *sdl.Renderer, text string, x, y int32, col sdl.Color) {
+	_ = ren.SetDrawColor(col.R, col.G, col.B, col.A)
+	for i, ch := range text {
+		px := x + int32(i*font.GlyphW)
+		bits := font.GlyphBits(rune(ch))
+		for row := 0; row < font.GlyphH; row++ {
+			for c2 := 0; c2 < font.GlyphW; c2++ {
+				if bits[row*font.GlyphW+c2] != 0 {
+					_ = ren.DrawPoint(px+int32(c2), y+int32(row))
+				}
+			}
+		}
 	}
 }
 

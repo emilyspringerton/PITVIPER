@@ -1,3 +1,6 @@
+## 2026-06-24
+- feat: GFD SDL2 integration — --gfd TCP MUD mode, Channel 11 bar, --gfd-webmaster Emily gear overlay, gfdapi live state polling, mudconn TCP conn package (Apple #3508)
+
 ## 2026-06-21
 - test: S67-01 font package test suite (Apple #2407)
 - feat: S64-01 CSI E/F/X (CNL/CPL/ECH); 31 vterm tests (Apple #2400)
