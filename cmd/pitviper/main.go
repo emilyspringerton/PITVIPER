@@ -286,6 +286,11 @@ func main() {
 		}
 	}()
 
+	// S127-02: Channel 11 splash screen — show for 2s before MUD MOTD.
+	if gfdMode {
+		renderChannel11Splash(ren, win, 2*time.Second)
+	}
+
 	ticker := time.NewTicker(time.Second / 60)
 	defer ticker.Stop()
 
@@ -418,6 +423,79 @@ func renderBarText(ren *sdl.Renderer, text string, x, y int32, col sdl.Color) {
 			}
 		}
 	}
+}
+
+// renderChannel11Splash shows the Channel 11 logo full-screen for the given duration.
+// Pumps SDL events during the wait so the window doesn't appear frozen.
+func renderChannel11Splash(ren *sdl.Renderer, win *sdl.Window, dur time.Duration) {
+	winW, winH, _ := ren.GetOutputSize()
+
+	gold := sdl.Color{R: 0xd4, G: 0xa0, B: 0x17, A: 0xff}
+	dark := sdl.Color{R: 0x08, G: 0x08, B: 0x0c, A: 0xff}
+	muted := sdl.Color{R: 0x44, G: 0x44, B: 0x55, A: 0xff}
+
+	logoLines := []string{
+		"  ██████╗██╗  ██╗ █",
+		"  ██╔════╝██║  ██║ ▄",
+		"  ██║     ███████║ 1",
+		"  ██║     ██╔══██║ 1",
+		"  ╚██████╗██║  ██║ █",
+		"   ╚═════╝╚═╝  ╚═╝  ",
+	}
+	title := "GOBLIN FOX DRAGON"
+	blink := "● CONNECTING..."
+
+	deadline := time.Now().Add(dur)
+	blinkTick := time.NewTicker(500 * time.Millisecond)
+	defer blinkTick.Stop()
+	blinkOn := true
+	frameTick := time.NewTicker(time.Second / 30)
+	defer frameTick.Stop()
+
+	render := func() {
+		_ = ren.SetDrawColor(dark.R, dark.G, dark.B, 0xff)
+		_ = ren.Clear()
+
+		// Centered logo block
+		logoY := winH/2 - int32(len(logoLines)*font.GlyphH) - int32(font.GlyphH)
+		for i, line := range logoLines {
+			x := (winW - int32(len(line)*font.GlyphW)) / 2
+			renderBarText(ren, line, x, logoY+int32(i*font.GlyphH), gold)
+		}
+		// Title below logo
+		titleY := logoY + int32(len(logoLines)*font.GlyphH) + 4
+		titleX := (winW - int32(len(title)*font.GlyphW)) / 2
+		renderBarText(ren, title, titleX, titleY, gold)
+		// Blink line
+		if blinkOn {
+			blinkY := titleY + int32(font.GlyphH)*2
+			blinkX := (winW - int32(len(blink)*font.GlyphW)) / 2
+			renderBarText(ren, blink, blinkX, blinkY, muted)
+		}
+		ren.Present()
+	}
+
+	render()
+	for time.Now().Before(deadline) {
+		// Pump events so the window stays responsive.
+		for {
+			ev := sdl.PollEvent()
+			if ev == nil {
+				break
+			}
+			if _, quit := ev.(*sdl.QuitEvent); quit {
+				return
+			}
+		}
+		select {
+		case <-blinkTick.C:
+			blinkOn = !blinkOn
+			render()
+		case <-frameTick.C:
+			render()
+		}
+	}
+	_ = win // satisfy compiler
 }
 
 // renderFrame draws the current screen state onto the SDL2 renderer.
