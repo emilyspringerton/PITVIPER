@@ -243,6 +243,14 @@ func main() {
 	var running atomic.Bool
 	running.Store(true)
 
+	// Auto-login state (S127-01): track whether credentials have been sent.
+	gfdUser := os.Getenv("GFD_USER")
+	gfdPass := os.Getenv("GFD_PASS")
+	var loginState struct {
+		nameSent bool
+		passSent bool
+	}
+
 	// Read from connection (PTY or TCP) → write to vterm.
 	go func() {
 		buf := make([]byte, 4096)
@@ -250,6 +258,19 @@ func main() {
 			n, err := ioReader.Read(buf)
 			if n > 0 {
 				screen.Write(buf[:n])
+
+				// S127-01: auto-login when GFD_USER + GFD_PASS are set.
+				if gfdMode && gfdUser != "" && gfdPass != "" {
+					chunk := string(buf[:n])
+					if !loginState.nameSent && strings.Contains(chunk, "Enter your name:") {
+						ioWriter.Write([]byte(gfdUser + "\r\n"))
+						loginState.nameSent = true
+					} else if loginState.nameSent && !loginState.passSent &&
+						(strings.Contains(chunk, "assword:") || strings.Contains(chunk, "Enter your password:")) {
+						ioWriter.Write([]byte(gfdPass + "\r\n"))
+						loginState.passSent = true
+					}
+				}
 			}
 			if err != nil {
 				if err != io.EOF {
