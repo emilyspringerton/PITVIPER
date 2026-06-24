@@ -1,4 +1,5 @@
 ## 2026-06-24
+- feat: S127-02 Channel 11 splash screen — 2s gold logo + blinking CONNECTING on --gfd connect (Apple #3648)
 - feat: S127-01 --gfd auto-login — GFD_USER+GFD_PASS env, detects 'Enter your name:' and password prompts in TCP stream (Apple #3646)
 - feat: GFD SDL2 integration — --gfd TCP MUD mode, Channel 11 bar, --gfd-webmaster Emily gear overlay, gfdapi live state polling, mudconn TCP conn package (Apple #3508)
 
