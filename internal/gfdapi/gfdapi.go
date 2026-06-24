@@ -24,6 +24,15 @@ type Config struct {
 	Token       string // JWT from $GFD_TOKEN env var (webmaster token)
 }
 
+// DistrictSnapshot is one Field Office's live state from /api/v1/fieldoffices.
+type DistrictSnapshot struct {
+	ID           string  `json:"id"`
+	DistrictName string  `json:"district_name"`
+	Phase        string  `json:"phase"`
+	HolderID     string  `json:"holder_id"`
+	Alertness    float64 `json:"alertness"`
+}
+
 // State is the live overlay state polled from the GFD APIs.
 type State struct {
 	mu           sync.RWMutex
@@ -31,17 +40,21 @@ type State struct {
 	OnlineCount  int
 	LatestApple  string    // title of the most recent Apple
 	TierName     string    // current user's GFD tier (if JWT set)
+	Districts    []DistrictSnapshot
 	LastUpdated  time.Time
 }
 
 func (s *State) clone() State {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	districts := make([]DistrictSnapshot, len(s.Districts))
+	copy(districts, s.Districts)
 	return State{
 		EmilyGear:   s.EmilyGear,
 		OnlineCount: s.OnlineCount,
 		LatestApple: s.LatestApple,
 		TierName:    s.TierName,
+		Districts:   districts,
 		LastUpdated: s.LastUpdated,
 	}
 }
@@ -118,6 +131,11 @@ func (c *Client) poll() {
 			c.state.TierName = tier
 		}
 	}
+
+	// Poll field office district state.
+	if districts, err := c.fetchFieldOffices(ctx); err == nil {
+		c.state.Districts = districts
+	}
 }
 
 func (c *Client) fetchEmilyGear(ctx context.Context) (string, error) {
@@ -178,6 +196,23 @@ func (c *Client) fetchUserTier(ctx context.Context) (string, error) {
 		return tier, nil
 	}
 	return "free_trial", nil
+}
+
+func (c *Client) fetchFieldOffices(ctx context.Context) ([]DistrictSnapshot, error) {
+	url := c.cfg.IDUNABase + "/api/v1/fieldoffices"
+	resp, err := c.getWithToken(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var result struct {
+		FieldOffices []DistrictSnapshot `json:"fieldoffices"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+	return result.FieldOffices, nil
 }
 
 func (c *Client) get(ctx context.Context, url string) (*http.Response, error) {

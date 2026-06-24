@@ -84,6 +84,9 @@ var gfdWebmaster bool
 // gfdClient is the live GFD API state poller (webmaster mode only).
 var gfdClient *gfdapi.Client
 
+// districtPaneOpen tracks whether Ctrl+D district overlay is visible (S127-05).
+var districtPaneOpen bool
+
 func sdlColor(c vterm.Color, isBold bool, isBackground bool) sdl.Color {
 	if c == vterm.ColorDefault {
 		if isBackground {
@@ -327,7 +330,11 @@ func main() {
 
 			case *sdl.KeyboardEvent:
 				if e.Type == sdl.KEYDOWN {
-					if scrollHandled := handleScrollKey(screen, e); !scrollHandled {
+					// S127-05: Ctrl+D toggles the district overlay pane.
+					if gfdMode && e.Keysym.Sym == sdl.K_d &&
+						(e.Keysym.Mod&sdl.KMOD_CTRL) != 0 {
+						districtPaneOpen = !districtPaneOpen
+					} else if scrollHandled := handleScrollKey(screen, e); !scrollHandled {
 						writeKey(ioWriter, e)
 					}
 				}
@@ -363,6 +370,11 @@ func main() {
 		if gfdMode {
 			renderGFDBar(ren)
 		}
+		// S127-05: district overlay pane (Ctrl+D toggle).
+		if gfdMode && districtPaneOpen && gfdClient != nil {
+			renderDistrictPane(ren, gfdClient.Snapshot())
+		}
+		ren.Present()
 	}
 }
 
@@ -421,6 +433,69 @@ func renderBarText(ren *sdl.Renderer, text string, x, y int32, col sdl.Color) {
 					_ = ren.DrawPoint(px+int32(c2), y+int32(row))
 				}
 			}
+		}
+	}
+}
+
+// renderDistrictPane draws a 20-col right-side district overlay pane (S127-05).
+// Shows live Field Office state from IDUNA: district name, phase, holder, alertness.
+func renderDistrictPane(ren *sdl.Renderer, state gfdapi.State) {
+	winW, winH, _ := ren.GetOutputSize()
+	paneW := int32(20 * font.GlyphW)
+	paneX := winW - paneW
+
+	// Dark semi-opaque background panel.
+	_ = ren.SetDrawColor(0x0c, 0x0c, 0x14, 0xe0)
+	_ = ren.FillRect(&sdl.Rect{X: paneX, Y: 0, W: paneW, H: winH})
+
+	// Border line.
+	gold := gfdPalette.accent
+	_ = ren.SetDrawColor(gold.R, gold.G, gold.B, 0xff)
+	_ = ren.DrawLine(paneX, 0, paneX, winH)
+
+	y := int32(4)
+	lineH := int32(font.GlyphH + 2)
+
+	renderBarText(ren, "DISTRICT STATE", paneX+4, y, gold)
+	y += lineH * 2
+
+	muted := gfdPalette.muted
+	freq := gfdPalette.freq
+
+	if len(state.Districts) == 0 {
+		renderBarText(ren, "(no data)", paneX+4, y, muted)
+		return
+	}
+	for _, d := range state.Districts {
+		name := d.DistrictName
+		if len(name) > 16 {
+			name = name[:16]
+		}
+		renderBarText(ren, name, paneX+4, y, gold)
+		y += lineH
+
+		phaseCol := muted
+		switch d.Phase {
+		case "Held":
+			phaseCol = freq
+		case "Contested", "Containment":
+			phaseCol = gfdPalette.bloc
+		}
+		renderBarText(ren, d.Phase, paneX+6, y, phaseCol)
+		y += lineH
+
+		holder := d.HolderID
+		if holder == "" {
+			holder = "---"
+		}
+		if len(holder) > 14 {
+			holder = holder[:14]
+		}
+		renderBarText(ren, holder, paneX+6, y, muted)
+		y += lineH + 4
+
+		if y+lineH > winH-int32(gfdBarRows*font.GlyphH) {
+			break
 		}
 	}
 }
@@ -541,7 +616,6 @@ func renderFrame(ren *sdl.Renderer, screen *vterm.Screen) {
 		}
 	}
 
-	ren.Present()
 }
 
 // handleScrollKey handles Shift+PageUp/Down for scrollback. Returns true if consumed.
