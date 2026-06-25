@@ -1,3 +1,7 @@
+## 2026-06-25
+
+- feat(ci): GitHub Actions CI workflow — test, CGO/SDL2 build, construct bundle (pending GitHub remote creation at S127-04)
+
 ## 2026-06-24
 - feat: S127-05 district overlay pane — Ctrl+D, gfdapi.DistrictSnapshot, renderDistrictPane 20-col right pane (Apple #3652)
 - feat: S127-02 Channel 11 splash screen — 2s gold logo + blinking CONNECTING on --gfd connect (Apple #3648)
