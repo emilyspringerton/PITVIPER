@@ -1,0 +1,100 @@
+name: PITVIPER CI
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: pitviper-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test_build_construct:
+    name: 🐍 Test, Build & Construct
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install SDL2 system dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev
+
+      - name: Go Tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test ./internal/...
+
+      - name: Build pitviper binary (Linux)
+        shell: bash
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=1 go build -o pitviper ./cmd/pitviper
+          echo "Build OK: $(ls -lh pitviper)"
+
+      - name: Generate Construct Bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="PITVIPER_CONSTRUCT.txt"
+          {
+            echo "PITVIPER CONSTRUCT ${{ github.run_number }}"
+            echo "commit: $GITHUB_SHA"
+            echo "generated_utc: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            echo
+          } > "$OUT"
+
+          while IFS= read -r relpath; do
+            {
+              echo "--- FILE START: ${relpath} ---"
+              cat "${relpath}"
+              echo
+              echo "--- FILE END: ${relpath} ---"
+              echo
+            } >> "$OUT"
+          done < <(
+            find . \
+              \( \
+                -path './.git' \
+                -o -path './vendor' \
+                -o -path './dist' \
+                -o -path './build' \
+                -o -path './artifacts' \
+                -o -path './tmp' \
+              \) -prune -o \
+              -type f \
+              \( \
+                -name '*.go' -o -name '*.mod' -o -name '*.sum' -o \
+                -name '*.md' -o -name '*.txt' -o -name '*.sh' -o \
+                -name '*.yaml' -o -name '*.yml' -o -name '*.toml' -o \
+                -name 'Makefile' -o -name '.gitignore' \
+              \) \
+              ! -name "$OUT" \
+              -print | sed 's#^./##' | LC_ALL=C sort
+          )
+
+          test -s "$OUT"
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitviper-${{ github.run_number }}-${{ github.sha }}
+          path: |
+            pitviper
+            PITVIPER_CONSTRUCT.txt
+          if-no-files-found: error
