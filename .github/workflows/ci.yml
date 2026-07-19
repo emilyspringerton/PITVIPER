@@ -93,8 +93,65 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: pitviper-${{ github.run_number }}-${{ github.sha }}
+          name: pitviper-linux-${{ github.run_number }}-${{ github.sha }}
           path: |
             pitviper
             PITVIPER_CONSTRUCT.txt
+          if-no-files-found: error
+
+  build_windows:
+    name: 🪟 Build Windows Binary
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # go-sdl2 needs cgo against a real SDL2 dev toolchain; MSYS2/MinGW64
+      # provides SDL2 + a matching gcc + Go all in one consistent
+      # toolchain, which avoids the GOROOT/gcc-ABI mismatches you get
+      # trying to mix actions/setup-go's native Go with a separate mingw
+      # install. Same reasoning as SHANKPIT's release.yml, adapted for Go
+      # instead of raw C: one self-consistent toolchain, not two bolted
+      # together.
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-go
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-SDL2_image
+            mingw-w64-x86_64-SDL2_ttf
+
+      - name: Build pitviper.exe
+        run: |
+          set -euo pipefail
+          export CGO_ENABLED=1
+          go build -o pitviper.exe ./cmd/pitviper
+          ls -lh pitviper.exe
+
+      - name: Bundle with required DLLs
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp pitviper.exe dist/
+          # SDL2.dll (and friends) are dynamically linked — ldd lists every
+          # MSYS2-provided DLL the binary actually needs so the zip is
+          # self-contained on a machine without MSYS2 installed.
+          for dll in $(ldd pitviper.exe | grep -i '/mingw64/bin/' | awk '{print $3}'); do
+            cp "$dll" dist/
+          done
+          printf '%s\r\n' "pitviper.exe" > dist/RUN.bat
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pitviper-windows-${{ github.run_number }}-${{ github.sha }}
+          path: dist/
           if-no-files-found: error

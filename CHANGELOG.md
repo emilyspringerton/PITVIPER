@@ -26,3 +26,10 @@
 
 - feat: S45-02 PITVIPER Milestone 1 scaffold — vterm state machine (8 tests), PTY, glyph atlas, SDL2 main loop (Apple #2313)
 
+
+## 2026-07-19
+- feat(ci): add Windows build job to ci.yml — builds pitviper.exe via MSYS2/MinGW64 (SDL2 +
+  SDL2_image + SDL2_ttf + matching gcc/Go toolchain, avoids GOROOT/gcc-ABI mismatches from mixing
+  actions/setup-go with a separate mingw install), bundles required DLLs via ldd, uploads as its
+  own artifact (pitviper-windows-<run>-<sha>). Same pattern as SHANKPIT's release.yml, adapted for
+  Go+cgo instead of raw C.
