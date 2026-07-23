@@ -25,3 +25,7 @@ exposes every operator interaction as an auditable signal.
 - `github.com/emilyspringerton/EMILY` — Emily Prime agent (`:8086`)
 - `github.com/emilyspringerton/IDUNA` — IAM + Apples (Apple POST destination)
 - `github.com/emilyspringerton/EmilyOS` — Policy kernel (PITVIPER is the operator interface)
+
+## Commit Protocol (standing instruction)
+
+Always commit and push completed work immediately — don't wait to be asked. This is the default for every repo in this monorepo.
