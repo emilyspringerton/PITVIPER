@@ -18,7 +18,13 @@ exposes every operator interaction as an auditable signal.
 
 ## Status
 
-**Milestone 0 not started.** See `docs/NORTHSTAR.md` for full milestone plan.
+**Stale claim corrected 2026-08-14**: this used to say "Milestone 0 not started," but real code
+already exists well past that (689-line `cmd/pitviper/main.go`, an 842-line `internal/vterm` with
+555 lines of its own tests, real PTY handling, GFD API integration, MUD connection support) --
+`docs/NORTHSTAR.md`'s own milestone checkboxes are similarly stale (still show Milestone 0-4 as
+`not started`/`queued`). A real milestone-by-milestone status audit against actual code (which
+acceptance criteria are genuinely met vs. still open) hasn't been done -- flagged, not done here.
+See `docs/NORTHSTAR.md` for the full milestone plan (status markers unreliable until audited).
 
 ## Related Repos
 

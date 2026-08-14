@@ -223,9 +223,12 @@ func main() {
 			fmt.Fprintln(os.Stderr, "open pty:", err)
 			os.Exit(1)
 		}
-		ioReader   = terminal.Master
-		ioWriter   = terminal.Master
-		connClose  = terminal.Close
+		ioReader = terminal.Master
+		ioWriter = terminal.Master
+		// PTY.Close() returns nothing; connClose's shared type (func() error) matches
+		// mudconn.Conn.Close's real signature instead -- wrap here rather than change
+		// PTY's own public API for a single caller.
+		connClose  = func() error { terminal.Close(); return nil }
 		connResize = terminal.Resize
 		_ = connResize // suppress unused warning
 		defer terminal.Close()
