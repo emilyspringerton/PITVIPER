@@ -210,15 +210,13 @@ commands_log = "~/.local/share/pitviper/commands.ndjson"
 
 ## Build
 
+See `README.md` for the current build/install/keybinding reference (corrected 2026-08-14 — this
+section previously omitted `GOWORK=off`, required since PITVIPER isn't part of the root
+`go.work` workspace, and the `make install` → `~/.local/bin` path).
+
 ```sh
-# Dependencies (Ubuntu/Debian)
-sudo apt install libsdl2-dev libfreetype-dev
-
-# Build
-go build ./cmd/pitviper
-
-# Run
-./pitviper
+sudo apt-get install -y libsdl2-dev   # make deps
+make install                          # ~/.local/bin/pitviper, already on PATH
 ```
 
 `CGO_ENABLED=1` required for SDL2 and FreeType2 bindings.

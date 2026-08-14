@@ -337,6 +337,16 @@ func main() {
 					if gfdMode && e.Keysym.Sym == sdl.K_d &&
 						(e.Keysym.Mod&sdl.KMOD_CTRL) != 0 {
 						districtPaneOpen = !districtPaneOpen
+					} else if !gfdMode && e.Keysym.Sym == sdl.K_i &&
+						(e.Keysym.Mod&sdl.KMOD_CTRL) != 0 && (e.Keysym.Mod&sdl.KMOD_ALT) != 0 {
+						// Founder real-time ask (2026-08-13): a hotkey that SSHes into
+						// iduna.farthq.com using the local ~/.ssh profile. Ctrl+Alt+I
+						// (not a plain Ctrl+letter) so it doesn't collide with any
+						// standard shell control character. Same technique S127-01's
+						// GFD auto-login already uses -- write the command into the
+						// live PTY as if typed, so `ssh` picks up the user's normal
+						// ~/.ssh/config, keys, and known_hosts with no special-casing.
+						ioWriter.Write([]byte("ssh iduna.farthq.com\r\n"))
 					} else if scrollHandled := handleScrollKey(screen, e); !scrollHandled {
 						writeKey(ioWriter, e)
 					}
