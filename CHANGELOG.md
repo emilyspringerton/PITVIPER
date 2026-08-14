@@ -1,3 +1,7 @@
+## 2026-08-14
+
+- Fixed real compile error (terminal.Close func()-vs-func()error mismatch); flagged CLAUDE.md's stale 'Milestone 0 not started' claim against real existing code (sess-20260813-2154-dda37e8b)
+
 ## 2026-06-25
 
 - feat(ci): GitHub Actions CI workflow — test, CGO/SDL2 build, construct bundle (pending GitHub remote creation at S127-04)
