@@ -1,4 +1,5 @@
 ## 2026-08-14
+- make install now works (GOWORK=off fix) and installs to ~/.local/bin; new Ctrl+Alt+I hotkey SSHes into iduna.farthq.com from plain PTY mode; first README.md. commit d9cce1a. (sess-20260813-2154-dda37e8b)
 
 - Fixed real compile error (terminal.Close func()-vs-func()error mismatch); flagged CLAUDE.md's stale 'Milestone 0 not started' claim against real existing code (sess-20260813-2154-dda37e8b)
 
