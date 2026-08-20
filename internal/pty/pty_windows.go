@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"unsafe"
 
@@ -29,6 +30,34 @@ import (
 func isWslStub(path string) bool {
 	lower := strings.ToLower(path)
 	return strings.Contains(lower, `\system32\bash.exe`)
+}
+
+// findGitBash checks the well-known Git-for-Windows install locations
+// directly, for the real case PATH-only lookup misses: Git installed but
+// its own bin/ dir never added to PATH (the installer's default is
+// actually to skip PATH modification for bash.exe specifically, only
+// git.exe gets added) — founder, real-time: "can you make it
+// automatically find gitbash on windows or something?" Checks both the
+// system-wide and per-user (non-admin) install locations, 64-bit and
+// 32-bit Program Files.
+func findGitBash() string {
+	roots := []string{
+		os.Getenv("ProgramFiles"),
+		os.Getenv("ProgramFiles(x86)"),
+		filepath.Join(os.Getenv("LocalAppData"), "Programs"),
+	}
+	for _, root := range roots {
+		if root == "" {
+			continue
+		}
+		for _, sub := range []string{`Git\bin\bash.exe`, `Git\usr\bin\bash.exe`} {
+			candidate := filepath.Join(root, sub)
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
+		}
+	}
+	return ""
 }
 
 // duplexPipe presents ConPTY's separate input/output pipe handles as one
@@ -68,7 +97,10 @@ type PTY struct {
 // legacy System32\bash.exe WSL launcher stub is explicitly skipped (see
 // isWslStub) — it's on PATH on stock Windows installs whether or not WSL is
 // actually enabled, so an unguarded LookPath silently launches WSL instead
-// of a real shell for users without it turned on.
+// of a real shell for users without it turned on. If PATH lookup finds
+// nothing real, findGitBash() checks Git for Windows' own well-known
+// install locations directly (its installer does not reliably add bin/ to
+// PATH), before falling all the way back to cmd.exe.
 func Open(shell string, cols, rows int) (*PTY, error) {
 	if shell == "" {
 		shell = os.Getenv("SHELL")
@@ -82,6 +114,9 @@ func Open(shell string, cols, rows int) (*PTY, error) {
 		if p, err := exec.LookPath("bash"); err == nil && !isWslStub(p) {
 			shell = p
 		}
+	}
+	if shell == "" {
+		shell = findGitBash()
 	}
 	if shell == "" {
 		shell = "cmd.exe"
