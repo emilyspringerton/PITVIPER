@@ -1,3 +1,7 @@
+## 2026-08-20
+
+- Windows build passing (ConPTY PTY backend, internal/pty/pty_windows.go) + mouse-drag text selection/copy/paste (Ctrl+Shift+C/V, middle-click) + full README refresh (Windows build mechanics, complete keybinding reference, brief philosophy section). Verified live via Xvfb+XTest and confirmed via real CI run (both Linux and Windows jobs green, run 32343167493). (sess-20260820-0649-a3f19d93)
+
 ## 2026-08-14
 - make install now works (GOWORK=off fix) and installs to ~/.local/bin; new Ctrl+Alt+I hotkey SSHes into iduna.farthq.com from plain PTY mode; first README.md. commit d9cce1a. (sess-20260813-2154-dda37e8b)
 
