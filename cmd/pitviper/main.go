@@ -632,11 +632,25 @@ func main() {
 						}
 					}
 				case e.Button == sdl.BUTTON_MIDDLE && e.State == sdl.PRESSED:
-					// Middle-click paste, X11-primary-selection-style. PITVIPER keeps its
-					// own lastSelected buffer (see that var's doc comment) rather than the
-					// real OS primary selection, which doesn't exist on Windows — this way
-					// the same keybind/behavior works identically on both platforms.
-					if lastSelected != "" {
+					// Middle-click paste, X11-primary-selection-style. Previously read
+					// only PITVIPER's own lastSelected buffer -- real bug (founder,
+					// real-time, critical: "i can copy the text out but when i paste the
+					// code in notepad first... when i middle click... it effing pastes
+					// the url the like previous clipboard"): lastSelected only updates
+					// on a completed PITVIPER-internal drag-select; anything copied
+					// through the real OS clipboard by another route never touches it,
+					// so middle-click could paste a stale PITVIPER-internal selection
+					// even though the real OS clipboard (and therefore Ctrl+Shift+V, and
+					// pasting into another app like Notepad) already has the correct,
+					// current text. Both of PITVIPER's own copy paths (Ctrl+Shift+C and
+					// drag-release below) already call SetClipboardText in lockstep with
+					// setting lastSelected, so the real OS clipboard is always at least
+					// as fresh -- prefer it here, falling back to lastSelected only if
+					// the OS clipboard read fails or is empty (keeps working the way it
+					// always did if there's genuinely nothing on the real clipboard yet).
+					if text, err := sdl.GetClipboardText(); err == nil && text != "" {
+						pasteText(ioWriter, text)
+					} else if lastSelected != "" {
 						pasteText(ioWriter, lastSelected)
 					}
 				}
