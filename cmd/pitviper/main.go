@@ -97,6 +97,31 @@ var gfdClient *gfdapi.Client
 // districtPaneOpen tracks whether Ctrl+D district overlay is visible (S127-05).
 var districtPaneOpen bool
 
+// emojiTextureCache caches one *sdl.Texture per rendered emoji codepoint
+// -- font.EmojiSurface itself already caches the underlying *sdl.Surface,
+// but converting a surface to a texture is a real, separate per-renderer
+// GPU upload that's worth caching here too rather than redoing every
+// frame a given emoji is on screen.
+var emojiTextureCache = map[rune]*sdl.Texture{}
+
+func emojiTexture(ren *sdl.Renderer, ch rune) *sdl.Texture {
+	if tex, ok := emojiTextureCache[ch]; ok {
+		return tex
+	}
+	surf := font.EmojiSurface(ch)
+	if surf == nil {
+		emojiTextureCache[ch] = nil
+		return nil
+	}
+	tex, err := ren.CreateTextureFromSurface(surf)
+	if err != nil {
+		emojiTextureCache[ch] = nil
+		return nil
+	}
+	emojiTextureCache[ch] = tex
+	return tex
+}
+
 // zoomScale is a Photoshop-inspired QoL addition (founder, real-time: "give
 // pitviper quality of life improvements inspired by photoshop keybindings"
 // -> "like for zoom and stuff" -> "i guess a key combo with scroll to zoom
@@ -205,6 +230,17 @@ func main() {
 		os.Exit(1)
 	}
 	defer sdl.Quit()
+
+	// Real color emoji (founder: "build all emojis into pitviper") --
+	// not fatal if it fails (SDL2_ttf or the emoji font not installed
+	// yet, see sudo-queue/19-pitviper-freetype-emoji-fonts.sh): PITVIPER
+	// already works without color glyphs (the '?' fallback covers the
+	// same case it always has), so this degrades instead of crashing,
+	// same choice already made elsewhere (e.g. gfdClient being nil
+	// outside --gfd mode).
+	if err := font.InitEmoji(); err != nil {
+		fmt.Fprintln(os.Stderr, "pitviper: color emoji unavailable:", err)
+	}
 
 	winW := int32(defaultCols * font.GlyphW)
 	extraH := 0
@@ -762,6 +798,18 @@ func renderFrame(ren *sdl.Renderer, screen *vterm.Screen) {
 			// Draw background.
 			_ = ren.SetDrawColor(bg.R, bg.G, bg.B, bg.A)
 			_ = ren.FillRect(&sdl.Rect{X: px, Y: py, W: int32(font.GlyphW), H: int32(font.GlyphH)})
+
+			// Real color emoji (founder: "build all emojis into pitviper"),
+			// layered on top of the existing monochrome path rather than
+			// replacing it -- falls through to the bitmap glyph below if
+			// the emoji font isn't loaded (InitEmoji failed/not called) or
+			// this specific codepoint has no glyph.
+			if font.IsEmoji(cell.Ch) {
+				if tex := emojiTexture(ren, cell.Ch); tex != nil {
+					_ = ren.Copy(tex, nil, &sdl.Rect{X: px, Y: py, W: int32(font.GlyphW), H: int32(font.GlyphH)})
+					continue
+				}
+			}
 
 			// Draw foreground glyph bitmap.
 			bits := font.GlyphBits(cell.Ch)
