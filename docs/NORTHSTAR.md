@@ -180,6 +180,20 @@ Emily Prime reads `commands.ndjson` to understand what Emily Springerton is acti
 4. **Hook layer is best-effort.** A failed Apple POST never blocks a keypress. The terminal is always responsive.
 5. **No tmux/screen dependency.** PITVIPER's pane model is native; it does not wrap another multiplexer.
 6. **Emily pane is optional.** PITVIPER is a useful terminal without Emily. `EMILY_AGENT_URL` unset = no Emily pane, no errors.
+7. **§7 Don't tighten a feedback loop before the signal earns it.** Founder, real-time, stated as
+   a core pillar directly: "already we will have optional iduna logins for pitviper" → "but dont
+   focus on that for now keep it an agnostic tool until we really need to tighten all of those
+   feedback loops" → "tightening a middle feedback too quickly is like a wandering oracle" → "it
+   can be catastrophic" → "make that a core pillar of the system." A feedback loop tightened
+   before the underlying signal is actually validated doesn't just fail quietly — it acts with
+   the *confidence* of a closed loop while running on wrong or premature information, the same
+   way an oracle that answers before it actually knows leads everything downstream astray with
+   authority it hasn't earned. Concretely for PITVIPER: IDUNA login, Vault integration, and any
+   other tight coupling to the rest of the stack stay optional and deferred — PITVIPER keeps
+   working as a fully agnostic terminal — until a real, validated need forces the loop closed, not
+   because the integration point exists and it seems like time to use it. §6 above (Emily pane
+   optional) is this same principle's first real instance in this document; §7 names the
+   principle itself so future integration decisions get checked against it directly.
 
 ---
 
