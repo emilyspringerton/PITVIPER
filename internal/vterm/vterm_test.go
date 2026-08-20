@@ -125,8 +125,8 @@ func TestSGR256Color(t *testing.T) {
 
 func TestCursorUpDown(t *testing.T) {
 	s := New(10, 5)
-	s.Write([]byte("\x1b[3;1H"))  // cursor to row 3, col 1
-	s.Write([]byte("\x1b[1A"))    // cursor up 1 → row 2
+	s.Write([]byte("\x1b[3;1H")) // cursor to row 3, col 1
+	s.Write([]byte("\x1b[1A"))   // cursor up 1 → row 2
 	_, _, _, curRow, _ := s.Snapshot()
 	if curRow != 1 { // 0-indexed
 		t.Fatalf("expected row 1, got %d", curRow)
@@ -380,8 +380,8 @@ func TestDECSTBM(t *testing.T) {
 	s.Write([]byte("ROW0\r\nROW1\r\nROW2\r\nROW3\r\nROW4"))
 	// Set scroll region rows 2-4 (1-indexed), then write a newline inside to force scroll.
 	// DECSTBM resets cursor to (0,0). Move cursor to bottom of region then add newline.
-	s.Write([]byte("\033[2;4r"))       // set scroll region rows 2-4
-	s.Write([]byte("\033[4;1H"))       // move to row 4, col 1
+	s.Write([]byte("\033[2;4r"))        // set scroll region rows 2-4
+	s.Write([]byte("\033[4;1H"))        // move to row 4, col 1
 	s.Write([]byte("\r\nSCROLLED\r\n")) // two newlines — region scrolls, not full screen
 	cells, cols, _, _, _ := s.Snapshot()
 	// Row 0 (ROW0) should be untouched — it is outside the scroll region.
@@ -437,6 +437,52 @@ func TestAlternateScreen(t *testing.T) {
 	cells, cols, _, _, _ = s.Snapshot()
 	if textAt(cells, cols, 0) != "PRIMARY" {
 		t.Errorf("after alt: row 0 = %q, want PRIMARY", textAt(cells, cols, 0))
+	}
+}
+
+// TestAlternateScreenResetsScrollRegion is a real regression test for the
+// bug the founder reported live: "if i quit a full screen terminal app
+// and i type clear it like doesnt clear." Root cause: a fullscreen app
+// (vim/htop/less all routinely do this, e.g. to reserve a status line)
+// sets a narrower DECSTBM scroll region while in the alternate screen;
+// that region wasn't part of the alt-screen save/restore set at all
+// (unlike cursor position and colors, right next to it in the same
+// code), so it silently leaked onto the primary screen after the app
+// quit -- every scroll from then on (a shell prompt's own linefeeds
+// included) stayed confined to that leftover narrow band, which looks
+// exactly like "clear doesn't work" once new output only ever touches
+// a few rows near the top.
+func TestAlternateScreenResetsScrollRegion(t *testing.T) {
+	s := New(20, 10)
+
+	// Enter alt screen and set a narrow scroll region, the way vim does
+	// for a reserved status line -- rows 1-3 only (1-indexed).
+	s.Write([]byte("\033[?1049h"))
+	s.Write([]byte("\033[2;4r"))
+
+	// Leave alt screen.
+	s.Write([]byte("\033[?1049l"))
+
+	// Real assertion: a scroll-triggering linefeed run from the bottom
+	// row must now scroll the *whole* primary screen, not stay confined
+	// to the vim app's old rows 1-3 band. Fill every row with a unique
+	// marker, then linefeed once from the last row.
+	for r := 0; r < 10; r++ {
+		s.Write([]byte("\r"))
+		s.Write([]byte("row" + string(rune('0'+r))))
+		if r < 9 {
+			s.Write([]byte("\n"))
+		}
+	}
+	// One more linefeed from the bottom row should scroll row 0 off the
+	// top (real full-screen scroll), not silently do nothing / only
+	// touch rows 1-3.
+	s.Write([]byte("\n"))
+	cells, cols, _, _, _ := s.Snapshot()
+	if textAt(cells, cols, 0) == "row0" {
+		t.Error("scroll region leaked from the alternate screen: row 0 still shows the pre-scroll " +
+			"content, meaning the linefeed-triggered scroll stayed confined to the fullscreen app's " +
+			"old narrow band instead of scrolling the whole primary screen")
 	}
 }
 
@@ -531,7 +577,7 @@ func TestScrollbackView(t *testing.T) {
 func TestScrollByClamp(t *testing.T) {
 	s := New(5, 2)
 	s.Write([]byte("AAAAA\r\nBBBBB\r\nCCCCC")) // 1 line in scrollback
-	s.ScrollBy(MaxScrollback + 100)             // over-scroll
+	s.ScrollBy(MaxScrollback + 100)            // over-scroll
 	if s.ScrollLines() != s.ScrollbackLen() {
 		t.Errorf("over-scroll: scrollLines=%d, want %d", s.ScrollLines(), s.ScrollbackLen())
 	}

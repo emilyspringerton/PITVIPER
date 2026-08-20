@@ -53,14 +53,16 @@ type Screen struct {
 	// cursor visibility — false when ?25l is active (vim rendering mode)
 	CursorHidden bool
 	// alternate screen buffer (saved when ?1049h is received)
-	altActive    bool
-	altCells     []Cell
-	altCurRow    int
-	altCurCol    int
-	altSavedRow  int
-	altSavedCol  int
-	altFG, altBG Color
-	altBold      bool
+	altActive       bool
+	altCells        []Cell
+	altCurRow       int
+	altCurCol       int
+	altSavedRow     int
+	altSavedCol     int
+	altFG, altBG    Color
+	altBold         bool
+	altScrollRegTop int
+	altScrollRegBot int
 }
 
 // New creates a Screen of the given dimensions.
@@ -558,10 +560,26 @@ func (s *Screen) handleCSI(final byte, params string) {
 				s.altCurRow, s.altCurCol = s.curRow, s.curCol
 				s.altSavedRow, s.altSavedCol = s.savedRow, s.savedCol
 				s.altFG, s.altBG, s.altBold = s.fg, s.bg, s.bold
+				// Real bug fix (founder, real-time: "if i quit a full
+				// screen terminal app and i type clear it like doesnt
+				// clear"): DECSTBM's scroll region wasn't part of this
+				// save/restore set at all, unlike cursor/colors right
+				// above -- a fullscreen app (vim/htop/less all do this
+				// routinely, e.g. for a reserved status line) that sets a
+				// narrower scroll region via `\e[r` left that region
+				// active on the primary screen after quitting. `clear`'s
+				// own \e[2J still blanked every cell (that path never
+				// looked at scrollReg), but every scroll afterward (a
+				// shell prompt linefeed included) stayed confined to the
+				// fullscreen app's leftover narrow band -- looking exactly
+				// like "clear doesn't clear" once new output only ever
+				// touched a few rows near the top.
+				s.altScrollRegTop, s.altScrollRegBot = s.scrollRegTop, s.scrollRegBot
 				s.altActive = true
 				s.curRow, s.curCol = 0, 0
 				s.savedRow, s.savedCol = 0, 0
 				s.fg, s.bg, s.bold = ColorDefault, ColorDefault, false
+				s.scrollRegTop, s.scrollRegBot = 0, s.rows-1
 				s.clear(0, len(s.cells), len(s.cells))
 			} else if final == 'l' && s.altActive {
 				// Restore primary screen and cursor.
@@ -569,6 +587,7 @@ func (s *Screen) handleCSI(final byte, params string) {
 				s.curRow, s.curCol = s.altCurRow, s.altCurCol
 				s.savedRow, s.savedCol = s.altSavedRow, s.altSavedCol
 				s.fg, s.bg, s.bold = s.altFG, s.altBG, s.altBold
+				s.scrollRegTop, s.scrollRegBot = s.altScrollRegTop, s.altScrollRegBot
 				s.altActive = false
 				s.altCells = nil
 			}
