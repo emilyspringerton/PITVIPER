@@ -14,10 +14,22 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// isWslStub reports whether path is the legacy %SystemRoot%\System32\bash.exe
+// launcher, which every Windows install ships regardless of whether WSL is
+// actually provisioned — exec.LookPath("bash.exe") happily resolves to it
+// when Git Bash isn't installed or isn't earlier on PATH, and launching it
+// without WSL enabled is exactly the "tries to launch Windows Subsystem for
+// Linux and I don't have those bits turned on" failure (founder, 2026-08-20).
+func isWslStub(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.Contains(lower, `\system32\bash.exe`)
+}
 
 // duplexPipe presents ConPTY's separate input/output pipe handles as one
 // io.Reader + io.Writer, matching how main.go uses PTY.Master.
@@ -52,18 +64,22 @@ type PTY struct {
 // shell resolution order: explicit arg > $SHELL > Git Bash (bash.exe on PATH —
 // "git bash figures it out" per founder direction, 2026-08-20: Git for Windows'
 // own bash.exe already resolves ~/.ssh, ssh.exe, and HOME correctly with no
-// PITVIPER-side special-casing) > cmd.exe as the last-resort fallback.
+// PITVIPER-side special-casing) > cmd.exe as the last-resort fallback. The
+// legacy System32\bash.exe WSL launcher stub is explicitly skipped (see
+// isWslStub) — it's on PATH on stock Windows installs whether or not WSL is
+// actually enabled, so an unguarded LookPath silently launches WSL instead
+// of a real shell for users without it turned on.
 func Open(shell string, cols, rows int) (*PTY, error) {
 	if shell == "" {
 		shell = os.Getenv("SHELL")
 	}
 	if shell == "" {
-		if p, err := exec.LookPath("bash.exe"); err == nil {
+		if p, err := exec.LookPath("bash.exe"); err == nil && !isWslStub(p) {
 			shell = p
 		}
 	}
 	if shell == "" {
-		if p, err := exec.LookPath("bash"); err == nil {
+		if p, err := exec.LookPath("bash"); err == nil && !isWslStub(p) {
 			shell = p
 		}
 	}
