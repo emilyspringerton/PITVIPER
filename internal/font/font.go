@@ -126,3 +126,20 @@ func GlyphBits(ch rune) *[GlyphH * GlyphW]byte {
 	}
 	return &Atlas['?'-0x20]
 }
+
+// KnownGlyphs returns every rune this package has a real (non-'?')
+// bitmap for -- every printable ASCII character plus every box-drawing
+// character extended holds. Used by the renderer to build a real GPU
+// glyph-texture atlas once at startup (founder: "can we do more to
+// unload rendering for pitviper onto the gpu?") instead of hardcoding
+// or duplicating this package's own two glyph ranges in cmd/pitviper.
+func KnownGlyphs() []rune {
+	glyphs := make([]rune, 0, len(Atlas)+len(extended))
+	for ch := rune(0x20); ch <= 0x7e; ch++ {
+		glyphs = append(glyphs, ch)
+	}
+	for ch := range extended {
+		glyphs = append(glyphs, ch)
+	}
+	return glyphs
+}

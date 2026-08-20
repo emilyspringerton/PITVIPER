@@ -97,6 +97,63 @@ var gfdClient *gfdapi.Client
 // districtPaneOpen tracks whether Ctrl+D district overlay is visible (S127-05).
 var districtPaneOpen bool
 
+// glyphAtlasTex holds every known monochrome glyph (font.KnownGlyphs())
+// pre-rendered once into a single GPU texture, real GPU offload per
+// founder's own real-time ask: "can we do more to unload rendering for
+// pitviper onto the gpu?" -> "like as soon as the terminal clears it
+// should like instantly... it should be very fast." Before this,
+// renderFrame's own per-cell loop issued up to font.GlyphW*font.GlyphH
+// (104) individual ren.DrawPoint calls per cell -- at defaultCols x
+// defaultRows (220x50 = 11,000 cells) that's up to ~1.1M individual
+// draw calls in the worst case, every single frame. With the atlas,
+// each cell becomes exactly one ren.Copy (a single GPU blit), colored
+// via SetColorMod per cell (the atlas itself is rendered in white, so
+// one shared texture serves every foreground color) -- real GPU
+// offload, not just RENDERER_ACCELERATED, applied to this repo's own
+// actual bottleneck.
+var (
+	glyphAtlasTex  *sdl.Texture
+	glyphAtlasSlot = map[rune]int32{}
+)
+
+func buildGlyphAtlas(ren *sdl.Renderer) error {
+	glyphs := font.KnownGlyphs()
+	atlasW := int32(len(glyphs) * font.GlyphW)
+	tex, err := ren.CreateTexture(sdl.PIXELFORMAT_RGBA8888, sdl.TEXTUREACCESS_TARGET, atlasW, font.GlyphH)
+	if err != nil {
+		return fmt.Errorf("create atlas texture: %w", err)
+	}
+	if err := tex.SetBlendMode(sdl.BLENDMODE_BLEND); err != nil {
+		tex.Destroy()
+		return fmt.Errorf("set atlas blend mode: %w", err)
+	}
+
+	prevTarget := ren.GetRenderTarget()
+	if err := ren.SetRenderTarget(tex); err != nil {
+		tex.Destroy()
+		return fmt.Errorf("set render target to atlas: %w", err)
+	}
+	_ = ren.SetDrawColor(0, 0, 0, 0)
+	_ = ren.Clear()
+	_ = ren.SetDrawColor(255, 255, 255, 255)
+	for i, ch := range glyphs {
+		bits := font.GlyphBits(ch)
+		slotX := int32(i * font.GlyphW)
+		glyphAtlasSlot[ch] = slotX
+		for y := 0; y < font.GlyphH; y++ {
+			for x := 0; x < font.GlyphW; x++ {
+				if bits[y*font.GlyphW+x] != 0 {
+					_ = ren.DrawPoint(slotX+int32(x), int32(y))
+				}
+			}
+		}
+	}
+	_ = ren.SetRenderTarget(prevTarget)
+
+	glyphAtlasTex = tex
+	return nil
+}
+
 // emojiTextureCache caches one *sdl.Texture per rendered emoji codepoint
 // -- font.EmojiSurface itself already caches the underlying *sdl.Surface,
 // but converting a surface to a texture is a real, separate per-renderer
@@ -284,6 +341,16 @@ func main() {
 		os.Exit(1)
 	}
 	defer ren.Destroy()
+
+	if err := buildGlyphAtlas(ren); err != nil {
+		fmt.Fprintln(os.Stderr, "pitviper: glyph atlas build failed, falling back to per-pixel "+
+			"rendering:", err)
+	}
+	defer func() {
+		if glyphAtlasTex != nil {
+			glyphAtlasTex.Destroy()
+		}
+	}()
 
 	cols, rows := defaultCols, defaultRows
 	screen := vterm.New(cols, rows)
@@ -619,6 +686,21 @@ func renderGFDBar(ren *sdl.Renderer) {
 
 // renderBarText draws a plain ASCII string into the bar using the glyph atlas.
 func renderBarText(ren *sdl.Renderer, text string, x, y int32, col sdl.Color) {
+	if glyphAtlasTex != nil {
+		_ = glyphAtlasTex.SetColorMod(col.R, col.G, col.B)
+		_ = glyphAtlasTex.SetAlphaMod(col.A)
+		for i, ch := range text {
+			px := x + int32(i*font.GlyphW)
+			slotX, ok := glyphAtlasSlot[ch]
+			if !ok {
+				slotX = glyphAtlasSlot['?']
+			}
+			_ = ren.Copy(glyphAtlasTex,
+				&sdl.Rect{X: slotX, Y: 0, W: int32(font.GlyphW), H: int32(font.GlyphH)},
+				&sdl.Rect{X: px, Y: y, W: int32(font.GlyphW), H: int32(font.GlyphH)})
+		}
+		return
+	}
 	_ = ren.SetDrawColor(col.R, col.G, col.B, col.A)
 	for i, ch := range text {
 		px := x + int32(i*font.GlyphW)
@@ -811,13 +893,27 @@ func renderFrame(ren *sdl.Renderer, screen *vterm.Screen) {
 				}
 			}
 
-			// Draw foreground glyph bitmap.
-			bits := font.GlyphBits(cell.Ch)
-			_ = ren.SetDrawColor(fg.R, fg.G, fg.B, fg.A)
-			for y := 0; y < font.GlyphH; y++ {
-				for x := 0; x < font.GlyphW; x++ {
-					if bits[y*font.GlyphW+x] != 0 {
-						_ = ren.DrawPoint(px+int32(x), py+int32(y))
+			// Draw foreground glyph: one GPU texture blit from the shared
+			// atlas (real GPU offload), falling back to the old per-pixel
+			// path only if the atlas failed to build at startup.
+			if glyphAtlasTex != nil {
+				slotX, ok := glyphAtlasSlot[cell.Ch]
+				if !ok {
+					slotX = glyphAtlasSlot['?']
+				}
+				_ = glyphAtlasTex.SetColorMod(fg.R, fg.G, fg.B)
+				_ = glyphAtlasTex.SetAlphaMod(fg.A)
+				_ = ren.Copy(glyphAtlasTex,
+					&sdl.Rect{X: slotX, Y: 0, W: int32(font.GlyphW), H: int32(font.GlyphH)},
+					&sdl.Rect{X: px, Y: py, W: int32(font.GlyphW), H: int32(font.GlyphH)})
+			} else {
+				bits := font.GlyphBits(cell.Ch)
+				_ = ren.SetDrawColor(fg.R, fg.G, fg.B, fg.A)
+				for y := 0; y < font.GlyphH; y++ {
+					for x := 0; x < font.GlyphW; x++ {
+						if bits[y*font.GlyphW+x] != 0 {
+							_ = ren.DrawPoint(px+int32(x), py+int32(y))
+						}
 					}
 				}
 			}
