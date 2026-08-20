@@ -1,11 +1,18 @@
-//go:build linux && cgo
+//go:build (linux || windows) && cgo
 
 // PITVIPER — SDL2 terminal emulator with Emily Prime integration.
 // Milestone 0+1: PTY shell inside an SDL2 window, 8×13 monochrome glyph atlas.
 //
-// Build:
+// Build (Linux):
 //   sudo apt install libsdl2-dev
 //   CGO_ENABLED=1 go build ./cmd/pitviper
+//
+// Build (Windows, via MSYS2/MinGW64 — see .github/workflows/ci.yml's build_windows
+// job for the exact toolchain: mingw-w64-x86_64-{gcc,go,SDL2,SDL2_image,SDL2_ttf}):
+//   CGO_ENABLED=1 go build -o pitviper.exe ./cmd/pitviper
+// The rest of this file is platform-agnostic (pure SDL2 + the io.Reader/Writer
+// abstraction over internal/pty, which has its own per-OS build-tagged files) —
+// only internal/pty needed a real Windows-specific implementation (ConPTY).
 package main
 
 import (
@@ -86,6 +93,22 @@ var gfdClient *gfdapi.Client
 
 // districtPaneOpen tracks whether Ctrl+D district overlay is visible (S127-05).
 var districtPaneOpen bool
+
+// selection tracks a mouse-drag text selection (S187-02). PITVIPER keeps its
+// own "primary selection" buffer (lastSelected) rather than relying on the
+// OS: X11 primary-selection is Linux-only and has no Windows equivalent, so
+// middle-click paste here always pastes PITVIPER's own last selection —
+// works identically on both platforms, at the cost of not sharing selection
+// with other apps' primary-selection buffer the way native X11 apps do.
+// Ctrl+Shift+C/V (not plain Ctrl+C/V) so copy/paste never collides with the
+// PTY's own Ctrl+C interrupt / Ctrl+V paste-literal-next-char.
+var selection struct {
+	active           bool // left button currently held, drag in progress
+	startRow, startCol int
+	endRow, endCol     int
+	haveSelection      bool // true once a drag has produced a non-empty range
+}
+var lastSelected string
 
 func sdlColor(c vterm.Color, isBold bool, isBackground bool) sdl.Color {
 	if c == vterm.ColorDefault {
@@ -347,8 +370,62 @@ func main() {
 						// live PTY as if typed, so `ssh` picks up the user's normal
 						// ~/.ssh/config, keys, and known_hosts with no special-casing.
 						ioWriter.Write([]byte("ssh iduna.farthq.com\r\n"))
+					} else if (e.Keysym.Mod&sdl.KMOD_CTRL) != 0 && (e.Keysym.Mod&sdl.KMOD_SHIFT) != 0 &&
+						e.Keysym.Sym == sdl.K_c {
+						// Ctrl+Shift+C: explicit copy-current-selection, redundant with
+						// copy-on-select-release below but a familiar terminal-emulator
+						// affordance (PuTTY/most Linux terminals bind this identically).
+						if lastSelected != "" {
+							_ = sdl.SetClipboardText(lastSelected)
+						}
+					} else if (e.Keysym.Mod&sdl.KMOD_CTRL) != 0 && (e.Keysym.Mod&sdl.KMOD_SHIFT) != 0 &&
+						e.Keysym.Sym == sdl.K_v {
+						// Ctrl+Shift+V: paste OS clipboard. Deliberately NOT plain Ctrl+V —
+						// see the `selection` var's doc comment on why Shift is required.
+						if text, err := sdl.GetClipboardText(); err == nil && text != "" {
+							pasteText(ioWriter, text)
+						}
 					} else if scrollHandled := handleScrollKey(screen, e); !scrollHandled {
 						writeKey(ioWriter, e)
+					}
+				}
+
+			case *sdl.MouseButtonEvent:
+				col, row := pixelToCell(e.X, e.Y)
+				switch {
+				case e.Button == sdl.BUTTON_LEFT && e.State == sdl.PRESSED:
+					selection.active = true
+					selection.startRow, selection.startCol = row, col
+					selection.endRow, selection.endCol = row, col
+					selection.haveSelection = false
+				case e.Button == sdl.BUTTON_LEFT && e.State == sdl.RELEASED:
+					if selection.active {
+						selection.active = false
+						if selection.haveSelection {
+							lastSelected = selectedText(screen, selection.startRow, selection.startCol, selection.endRow, selection.endCol)
+							if lastSelected != "" {
+								_ = sdl.SetClipboardText(lastSelected)
+							}
+						}
+					}
+				case e.Button == sdl.BUTTON_MIDDLE && e.State == sdl.PRESSED:
+					// Middle-click paste, X11-primary-selection-style. PITVIPER keeps its
+					// own lastSelected buffer (see that var's doc comment) rather than the
+					// real OS primary selection, which doesn't exist on Windows — this way
+					// the same keybind/behavior works identically on both platforms.
+					if lastSelected != "" {
+						pasteText(ioWriter, lastSelected)
+					}
+				}
+
+			case *sdl.MouseMotionEvent:
+				if selection.active {
+					col, row := pixelToCell(e.X, e.Y)
+					if row != selection.endRow || col != selection.endCol {
+						selection.endRow, selection.endCol = row, col
+						if row != selection.startRow || col != selection.startCol {
+							selection.haveSelection = true
+						}
 					}
 				}
 
@@ -629,6 +706,109 @@ func renderFrame(ren *sdl.Renderer, screen *vterm.Screen) {
 		}
 	}
 
+	// Selection highlight (S187-02): drawn as a semi-transparent overlay so
+	// the underlying glyph is still legible, matching how most terminal
+	// emulators render an in-progress or just-finished selection.
+	if selection.active || selection.haveSelection {
+		r1, c1, r2, c2 := selection.startRow, selection.startCol, selection.endRow, selection.endCol
+		if r1 > r2 || (r1 == r2 && c1 > c2) {
+			r1, c1, r2, c2 = r2, c2, r1, c1
+		}
+		_ = ren.SetDrawBlendMode(sdl.BLENDMODE_BLEND)
+		_ = ren.SetDrawColor(0x60, 0x80, 0xff, 0x60)
+		for row := r1; row <= r2 && row < rows; row++ {
+			startCol, endCol := 0, cols-1
+			if row == r1 {
+				startCol = c1
+			}
+			if row == r2 {
+				endCol = c2
+			}
+			if endCol >= cols {
+				endCol = cols - 1
+			}
+			if startCol > endCol {
+				continue
+			}
+			px := int32(startCol * font.GlyphW)
+			py := int32(row * font.GlyphH)
+			w := int32((endCol - startCol + 1) * font.GlyphW)
+			_ = ren.FillRect(&sdl.Rect{X: px, Y: py, W: w, H: int32(font.GlyphH)})
+		}
+		_ = ren.SetDrawBlendMode(sdl.BLENDMODE_NONE)
+	}
+}
+
+// pixelToCell converts window-relative pixel coordinates to a (col, row) cell
+// position, clamped to non-negative — mouse events firing slightly outside
+// the grid (e.g. in the GFD status bar) shouldn't produce a negative index.
+func pixelToCell(x, y int32) (col, row int) {
+	col = int(x) / font.GlyphW
+	row = int(y) / font.GlyphH
+	if col < 0 {
+		col = 0
+	}
+	if row < 0 {
+		row = 0
+	}
+	return col, row
+}
+
+// selectedText extracts the text between two cell positions from the current
+// screen snapshot, normalizing so the range reads top-to-bottom regardless of
+// drag direction. Trailing spaces on each line are trimmed (standard terminal
+// copy behavior — cell padding shouldn't end up in the clipboard).
+func selectedText(screen *vterm.Screen, r1, c1, r2, c2 int) string {
+	cells, cols, rows, _, _ := screen.Snapshot()
+	if r1 > r2 || (r1 == r2 && c1 > c2) {
+		r1, c1, r2, c2 = r2, c2, r1, c1
+	}
+	if r1 < 0 {
+		r1 = 0
+	}
+	if r2 >= rows {
+		r2 = rows - 1
+	}
+	if r2 < r1 {
+		return ""
+	}
+
+	var b strings.Builder
+	for row := r1; row <= r2; row++ {
+		startCol, endCol := 0, cols-1
+		if row == r1 {
+			startCol = c1
+		}
+		if row == r2 {
+			endCol = c2
+		}
+		if startCol < 0 {
+			startCol = 0
+		}
+		if endCol >= cols {
+			endCol = cols - 1
+		}
+		line := make([]rune, 0, endCol-startCol+1)
+		for col := startCol; col <= endCol; col++ {
+			ch := cells[row*cols+col].Ch
+			if ch == 0 {
+				ch = ' '
+			}
+			line = append(line, ch)
+		}
+		b.WriteString(strings.TrimRight(string(line), " "))
+		if row != r2 {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+// pasteText writes pasted text into the connection, converting newlines to
+// carriage returns to match how K_RETURN is sent elsewhere in this file —
+// a shell reads \r as Enter, not \n.
+func pasteText(w io.Writer, text string) {
+	_, _ = w.Write([]byte(strings.ReplaceAll(text, "\n", "\r")))
 }
 
 // handleScrollKey handles Shift+PageUp/Down for scrollback. Returns true if consumed.
