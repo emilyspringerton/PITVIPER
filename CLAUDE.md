@@ -67,6 +67,13 @@ lens during planning/triage/judgment calls. Use it to spot the general case behi
 ask. It augments judgment, it does not replace doing the work: direct, concrete execution of
 the literal task asked for still happens every time.
 
+## Compression Convention
+
+LZ4 is the default compression codec across the monorepo (see root `/home/fatbaby/CLAUDE.md`'s own
+"Compression Convention" section) — most directly relevant here since PITVIPER's own remote-IDE
+wire protocol (`PARENA/stdlib/pitviper/protocol.prn`) already compresses every response through
+`compress/lz4` before send.
+
 ## Commit Protocol (standing instruction)
 
 Always commit and push completed work immediately — don't wait to be asked. This is the default for every repo in this monorepo.
