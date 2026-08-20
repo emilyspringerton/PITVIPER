@@ -233,7 +233,16 @@ func main() {
 	}
 	defer win.Destroy()
 
-	ren, err := sdl.CreateRenderer(win, -1, sdl.RENDERER_SOFTWARE)
+	// Founder real-time: "iits just really slow" (also reported as "weird"
+	// display, likely tearing from this). RENDERER_SOFTWARE does every
+	// glyph's per-pixel FillRect on the CPU with no vsync -- at
+	// defaultCols x defaultRows (220x50 = 11,000 cells, up to 8x13=104
+	// FillRect calls each) that's up to ~1.1M draw calls/frame in the
+	// worst case. RENDERER_ACCELERATED hands the same FillRect calls to
+	// the GPU; PRESENTVSYNC caps/syncs Present() to the display refresh
+	// instead of racing the 60Hz ticker uncapped, which is the other real
+	// source of visible tearing/"weird" frames.
+	ren, err := sdl.CreateRenderer(win, -1, sdl.RENDERER_ACCELERATED|sdl.RENDERER_PRESENTVSYNC)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "create renderer:", err)
 		os.Exit(1)

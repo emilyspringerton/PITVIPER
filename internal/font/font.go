@@ -24,6 +24,70 @@ const (
 // atlas[ch-0x20] is a GlyphW×GlyphH byte slice: 1 = foreground, 0 = background.
 var Atlas [95][GlyphH * GlyphW]byte
 
+// extended holds glyphs outside the ASCII range that real terminal programs
+// depend on. Founder, real-time, reporting real symptoms of the actual bug:
+// "pitviper having a hard time displaying tmux stuff right" -> "lots of
+// question marks" -- tmux draws its pane borders/status-bar dividers with
+// Unicode box-drawing characters (U+2500 block); every one of them fell
+// outside the old 0x20-0x7e-only Atlas and silently rendered as the '?'
+// fallback glyph, which is exactly that symptom. vterm's own UTF-8 decoder
+// (internal/vterm/vterm.go) was already correct -- it decodes the runes
+// fine, GlyphBits just had nowhere to look them up.
+var extended = map[rune][GlyphH * GlyphW]byte{}
+
+// boxArms describes which of the four line segments a single-line
+// Unicode box-drawing character draws from the glyph cell's center point
+// -- the real, systematic definition every one of these characters shares
+// (https://en.wikipedia.org/wiki/Box-drawing_characters), used here
+// instead of hand-drawing 11 separate bitmap literals.
+type boxArms struct {
+	up, down, left, right bool
+}
+
+var boxDrawingChars = map[rune]boxArms{
+	0x2500: {false, false, true, true}, // ─ horizontal
+	0x2502: {true, true, false, false}, // │ vertical
+	0x250C: {false, true, false, true}, // ┌ down-and-right
+	0x2510: {false, true, true, false}, // ┐ down-and-left
+	0x2514: {true, false, false, true}, // └ up-and-right
+	0x2518: {true, false, true, false}, // ┘ up-and-left
+	0x251C: {true, true, false, true},  // ├ vertical-and-right
+	0x2524: {true, true, true, false},  // ┤ vertical-and-left
+	0x252C: {false, true, true, true},  // ┬ horizontal-and-down
+	0x2534: {true, false, true, true},  // ┴ horizontal-and-up
+	0x253C: {true, true, true, true},   // ┼ cross
+}
+
+const (
+	boxCenterCol = GlyphW / 2
+	boxCenterRow = GlyphH / 2
+)
+
+func drawBoxChar(arms boxArms) [GlyphH * GlyphW]byte {
+	var bits [GlyphH * GlyphW]byte
+	if arms.up {
+		for y := 0; y <= boxCenterRow; y++ {
+			bits[y*GlyphW+boxCenterCol] = 1
+		}
+	}
+	if arms.down {
+		for y := boxCenterRow; y < GlyphH; y++ {
+			bits[y*GlyphW+boxCenterCol] = 1
+		}
+	}
+	if arms.left {
+		for x := 0; x <= boxCenterCol; x++ {
+			bits[boxCenterRow*GlyphW+x] = 1
+		}
+	}
+	if arms.right {
+		for x := boxCenterCol; x < GlyphW; x++ {
+			bits[boxCenterRow*GlyphW+x] = 1
+		}
+	}
+	return bits
+}
+
 func init() {
 	face := basicfont.Face7x13
 	for ch := rune(0x20); ch <= 0x7e; ch++ {
@@ -45,13 +109,20 @@ func init() {
 			}
 		}
 	}
+
+	for ch, arms := range boxDrawingChars {
+		extended[ch] = drawBoxChar(arms)
+	}
 }
 
 // GlyphBits returns the pre-rendered bits for the given rune.
-// Returns the '?' glyph for any rune outside the ASCII printable range.
+// Returns the '?' glyph for any rune with no real glyph defined.
 func GlyphBits(ch rune) *[GlyphH * GlyphW]byte {
 	if ch >= 0x20 && ch <= 0x7e {
 		return &Atlas[ch-0x20]
+	}
+	if bits, ok := extended[ch]; ok {
+		return &bits
 	}
 	return &Atlas['?'-0x20]
 }
