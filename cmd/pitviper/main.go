@@ -4,12 +4,15 @@
 // Milestone 0+1: PTY shell inside an SDL2 window, 8×13 monochrome glyph atlas.
 //
 // Build (Linux):
-//   sudo apt install libsdl2-dev
-//   CGO_ENABLED=1 go build ./cmd/pitviper
+//
+//	sudo apt install libsdl2-dev
+//	CGO_ENABLED=1 go build ./cmd/pitviper
 //
 // Build (Windows, via MSYS2/MinGW64 — see .github/workflows/ci.yml's build_windows
 // job for the exact toolchain: mingw-w64-x86_64-{gcc,go,SDL2,SDL2_image,SDL2_ttf}):
-//   CGO_ENABLED=1 go build -o pitviper.exe ./cmd/pitviper
+//
+//	CGO_ENABLED=1 go build -o pitviper.exe ./cmd/pitviper
+//
 // The rest of this file is platform-agnostic (pure SDL2 + the io.Reader/Writer
 // abstraction over internal/pty, which has its own per-OS build-tagged files) —
 // only internal/pty needed a real Windows-specific implementation (ConPTY).
@@ -18,13 +21,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/veandco/go-sdl2/sdl"
 	"io"
 	"os"
 	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
-	"github.com/veandco/go-sdl2/sdl"
 
 	"pitviper/internal/font"
 	"pitviper/internal/gfdapi"
@@ -64,13 +67,13 @@ var baseColors = [16]sdl.Color{
 
 // GFD Channel 11 color scheme — deep black bg, gold accent, freq cyan.
 var gfdPalette = struct {
-	bg        sdl.Color
-	fg        sdl.Color
-	accent    sdl.Color // Channel 11 gold #e8c842
-	freq      sdl.Color // The Frequency cyan #4ad1d1
-	bloc      sdl.Color // The Bloc red #d14a4a
-	muted     sdl.Color
-	barBG     sdl.Color
+	bg     sdl.Color
+	fg     sdl.Color
+	accent sdl.Color // Channel 11 gold #e8c842
+	freq   sdl.Color // The Frequency cyan #4ad1d1
+	bloc   sdl.Color // The Bloc red #d14a4a
+	muted  sdl.Color
+	barBG  sdl.Color
 }{
 	bg:     sdl.Color{R: 0x0a, G: 0x0a, B: 0x0a, A: 0xff},
 	fg:     sdl.Color{R: 0xd4, G: 0xd4, B: 0xd4, A: 0xff},
@@ -94,6 +97,32 @@ var gfdClient *gfdapi.Client
 // districtPaneOpen tracks whether Ctrl+D district overlay is visible (S127-05).
 var districtPaneOpen bool
 
+// zoomScale is a Photoshop-inspired QoL addition (founder, real-time: "give
+// pitviper quality of life improvements inspired by photoshop keybindings"
+// -> "like for zoom and stuff" -> "i guess a key combo with scroll to zoom
+// the terminal text size"). Applied via SDL's own renderer scale
+// (ren.SetScale) rather than recomputing every font.GlyphW/GlyphH call
+// site by hand — the whole frame (cell grid, status bar, GFD pane, logo)
+// scales together for free. Clamped to [zoomMin, zoomMax] the same way
+// Photoshop clamps its own zoom percentage.
+var zoomScale float32 = 1.0
+
+const (
+	zoomMin  float32 = 0.5
+	zoomMax  float32 = 3.0
+	zoomStep float32 = 0.1
+)
+
+func adjustZoom(delta float32) {
+	zoomScale += delta
+	if zoomScale < zoomMin {
+		zoomScale = zoomMin
+	}
+	if zoomScale > zoomMax {
+		zoomScale = zoomMax
+	}
+}
+
 // selection tracks a mouse-drag text selection (S187-02). PITVIPER keeps its
 // own "primary selection" buffer (lastSelected) rather than relying on the
 // OS: X11 primary-selection is Linux-only and has no Windows equivalent, so
@@ -103,7 +132,7 @@ var districtPaneOpen bool
 // Ctrl+Shift+C/V (not plain Ctrl+C/V) so copy/paste never collides with the
 // PTY's own Ctrl+C interrupt / Ctrl+V paste-literal-next-char.
 var selection struct {
-	active           bool // left button currently held, drag in progress
+	active             bool // left button currently held, drag in progress
 	startRow, startCol int
 	endRow, endCol     int
 	haveSelection      bool // true once a drag has produced a non-empty range
@@ -151,10 +180,10 @@ const gfdBarRows = 1
 func main() {
 	runtime.LockOSThread()
 
-	ver       := flag.Bool("version",       false,            "print version and exit")
-	shellFlag := flag.String("shell",        "",              "shell to launch (default: $SHELL or /bin/bash)")
-	gfdFlag   := flag.String("gfd",          "",              "connect to GFD MUD at host:port (e.g. localhost:2323)")
-	wmFlag    := flag.Bool("gfd-webmaster",  false,           "webmaster mode — elevated display in GFD client")
+	ver := flag.Bool("version", false, "print version and exit")
+	shellFlag := flag.String("shell", "", "shell to launch (default: $SHELL or /bin/bash)")
+	gfdFlag := flag.String("gfd", "", "connect to GFD MUD at host:port (e.g. localhost:2323)")
+	wmFlag := flag.Bool("gfd-webmaster", false, "webmaster mode — elevated display in GFD client")
 	flag.Parse()
 
 	if *ver {
@@ -219,9 +248,9 @@ func main() {
 	// ioReader / ioWriter are the abstract read/write ends of the connection.
 	// In PTY mode: pty.Terminal.Master. In GFD mode: mudconn.Conn.Master.
 	var (
-		ioReader  io.Reader
-		ioWriter  io.Writer
-		connClose func() error
+		ioReader   io.Reader
+		ioWriter   io.Writer
+		connClose  func() error
 		connResize func(cols, rows int) error
 	)
 
@@ -235,9 +264,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "GFD connect %s: %v\n", addr, err)
 			os.Exit(1)
 		}
-		ioReader   = mc.Master
-		ioWriter   = mc.Master
-		connClose  = mc.Close
+		ioReader = mc.Master
+		ioWriter = mc.Master
+		connClose = mc.Close
 		connResize = mc.Resize
 		fmt.Printf("Connected to GFD MUD at %s\n", addr)
 	} else {
@@ -251,7 +280,7 @@ func main() {
 		// PTY.Close() returns nothing; connClose's shared type (func() error) matches
 		// mudconn.Conn.Close's real signature instead -- wrap here rather than change
 		// PTY's own public API for a single caller.
-		connClose  = func() error { terminal.Close(); return nil }
+		connClose = func() error { terminal.Close(); return nil }
 		connResize = terminal.Resize
 		_ = connResize // suppress unused warning
 		defer terminal.Close()
@@ -360,6 +389,18 @@ func main() {
 					if gfdMode && e.Keysym.Sym == sdl.K_d &&
 						(e.Keysym.Mod&sdl.KMOD_CTRL) != 0 {
 						districtPaneOpen = !districtPaneOpen
+					} else if (e.Keysym.Mod&sdl.KMOD_CTRL) != 0 &&
+						(e.Keysym.Sym == sdl.K_EQUALS || e.Keysym.Sym == sdl.K_KP_PLUS) {
+						// Ctrl+= (the unshifted key '+' lives on): zoom in, Photoshop's
+						// own Ctrl/Cmd+'+' binding.
+						adjustZoom(zoomStep)
+					} else if (e.Keysym.Mod&sdl.KMOD_CTRL) != 0 &&
+						(e.Keysym.Sym == sdl.K_MINUS || e.Keysym.Sym == sdl.K_KP_MINUS) {
+						// Ctrl+-: zoom out, Photoshop's own Ctrl/Cmd+'-'.
+						adjustZoom(-zoomStep)
+					} else if (e.Keysym.Mod&sdl.KMOD_CTRL) != 0 && e.Keysym.Sym == sdl.K_0 {
+						// Ctrl+0: reset zoom, Photoshop's own "Fit on Screen"/100% reset.
+						zoomScale = 1.0
 					} else if !gfdMode && e.Keysym.Sym == sdl.K_i &&
 						(e.Keysym.Mod&sdl.KMOD_CTRL) != 0 && (e.Keysym.Mod&sdl.KMOD_ALT) != 0 {
 						// Founder real-time ask (2026-08-13): a hotkey that SSHes into
@@ -418,6 +459,21 @@ func main() {
 					}
 				}
 
+			case *sdl.MouseWheelEvent:
+				// Ctrl+scroll: zoom, Photoshop's own Ctrl/Cmd+scroll-wheel zoom binding
+				// (founder: "i guess a key combo with scroll to zoom the terminal text
+				// size"). Plain scroll (no Ctrl) is intentionally a no-op here — PITVIPER
+				// has no scrollback buffer at all yet (Page Up/Down already scroll the
+				// live screen via handleScrollKey, a real separate feature); wiring wheel
+				// events to a real scrollback is flagged as its own follow-up, not faked.
+				if (sdl.GetModState() & sdl.KMOD_CTRL) != 0 {
+					if e.Y > 0 {
+						adjustZoom(zoomStep)
+					} else if e.Y < 0 {
+						adjustZoom(-zoomStep)
+					}
+				}
+
 			case *sdl.MouseMotionEvent:
 				if selection.active {
 					col, row := pixelToCell(e.X, e.Y)
@@ -456,6 +512,10 @@ func main() {
 			}
 		}
 
+		// zoomScale applied once for the whole frame via SDL's own renderer
+		// scale, reset immediately after Present so window-chrome-relative
+		// SDL calls elsewhere (event coordinates, etc.) stay in real pixels.
+		_ = ren.SetScale(zoomScale, zoomScale)
 		renderFrame(ren, screen)
 		if gfdMode {
 			renderGFDBar(ren)
@@ -465,6 +525,7 @@ func main() {
 			renderDistrictPane(ren, gfdClient.Snapshot())
 		}
 		ren.Present()
+		_ = ren.SetScale(1, 1)
 	}
 }
 
