@@ -195,6 +195,34 @@ const (
 	zoomStep float32 = 0.1
 )
 
+// useShinyFont is the F11 toggle's own state (founder: "keep the og font
+// for now" -> "and the toggle switches to the new shiny font") -- off by
+// default, the OG built-in atlas is what ships on first launch.
+var useShinyFont bool
+
+// shinyTextureCache mirrors emojiTextureCache's own real reasoning: font.
+// ShinyGlyphSurface already caches the rendered *sdl.Surface, this caches
+// the separate, real, per-renderer GPU texture upload on top of that.
+var shinyTextureCache = map[rune]*sdl.Texture{}
+
+func shinyTexture(ren *sdl.Renderer, ch rune) *sdl.Texture {
+	if tex, ok := shinyTextureCache[ch]; ok {
+		return tex
+	}
+	surf := font.ShinyGlyphSurface(ch)
+	if surf == nil {
+		shinyTextureCache[ch] = nil
+		return nil
+	}
+	tex, err := ren.CreateTextureFromSurface(surf)
+	if err != nil {
+		shinyTextureCache[ch] = nil
+		return nil
+	}
+	shinyTextureCache[ch] = tex
+	return tex
+}
+
 func adjustZoom(delta float32) {
 	zoomScale += delta
 	if zoomScale < zoomMin {
@@ -297,6 +325,14 @@ func main() {
 	// outside --gfd mode).
 	if err := font.InitEmoji(); err != nil {
 		fmt.Fprintln(os.Stderr, "pitviper: color emoji unavailable:", err)
+	}
+
+	// F11 "shiny font" toggle (founder: "add on a toggle like f11 or
+	// f12" -> "keep the og font for now" -> "and the toggle switches to
+	// the new shiny font"). Same degrade-don't-crash choice as InitEmoji
+	// -- F11 just reports "not available" until this succeeds.
+	if err := font.InitShinyFont(font.GlyphH); err != nil {
+		fmt.Fprintln(os.Stderr, "pitviper: shiny font (JetBrains Mono) unavailable:", err)
 	}
 
 	winW := int32(defaultCols * font.GlyphW)
@@ -533,6 +569,20 @@ func main() {
 					} else if (e.Keysym.Mod&sdl.KMOD_CTRL) != 0 && e.Keysym.Sym == sdl.K_0 {
 						// Ctrl+0: reset zoom, Photoshop's own "Fit on Screen"/100% reset.
 						zoomScale = 1.0
+					} else if e.Keysym.Sym == sdl.K_F11 {
+						// F11: toggle the "shiny font" (real JetBrains Mono, anti-aliased,
+						// via SDL2_ttf) on top of the original built-in bitmap atlas.
+						// Founder: "can you please find the nicest monospace public domain
+						// font you can and add it on a toggle like f11 or f12" -> "keep the
+						// og font for now" -> "and the toggle switches to the new shiny
+						// font." A no-op (with a one-line stderr note) if the font/SDL2_ttf
+						// isn't installed yet -- the OG atlas keeps working regardless.
+						if font.ShinyFontAvailable() {
+							useShinyFont = !useShinyFont
+						} else {
+							fmt.Fprintln(os.Stderr, "pitviper: shiny font not available "+
+								"(SDL2_ttf/JetBrains Mono not installed yet)")
+						}
 					} else if !gfdMode && e.Keysym.Sym == sdl.K_i &&
 						(e.Keysym.Mod&sdl.KMOD_CTRL) != 0 && (e.Keysym.Mod&sdl.KMOD_ALT) != 0 {
 						// Founder real-time ask (2026-08-13): a hotkey that SSHes into
@@ -908,6 +958,19 @@ func renderFrame(ren *sdl.Renderer, screen *vterm.Screen) {
 			// this specific codepoint has no glyph.
 			if font.IsEmoji(cell.Ch) {
 				if tex := emojiTexture(ren, cell.Ch); tex != nil {
+					_ = ren.Copy(tex, nil, &sdl.Rect{X: px, Y: py, W: int32(font.GlyphW), H: int32(font.GlyphH)})
+					continue
+				}
+			}
+
+			// F11 "shiny font" (real JetBrains Mono via SDL2_ttf), checked
+			// before the built-in atlas -- only when the toggle is on and
+			// the font actually loaded; falls through to the OG atlas
+			// otherwise, same layering as the emoji branch above.
+			if useShinyFont {
+				if tex := shinyTexture(ren, cell.Ch); tex != nil {
+					_ = tex.SetColorMod(fg.R, fg.G, fg.B)
+					_ = tex.SetAlphaMod(fg.A)
 					_ = ren.Copy(tex, nil, &sdl.Rect{X: px, Y: py, W: int32(font.GlyphW), H: int32(font.GlyphH)})
 					continue
 				}
