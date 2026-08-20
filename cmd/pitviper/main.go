@@ -423,6 +423,26 @@ func main() {
 
 	// Read from connection (PTY or TCP) → write to vterm.
 	go func() {
+		// Founder, real-time, real crash report: "when i run the crystal.go
+		// program or the main.go of the crystal app it like the connection
+		// in pitviper isnt cleaned up right the program crashes when you
+		// try to open it with tmux open with the crystal running." An
+		// unrecovered panic in ANY goroutine takes down the whole Go
+		// process, not just that goroutine -- this loop feeds screen.Write
+		// every byte a real subprocess (tmux, and whatever's running
+		// inside it) produces, with zero defensive boundary. Whatever the
+		// exact triggering byte sequence turns out to be, a malformed/
+		// unexpected escape sequence should degrade this one connection,
+		// not crash the whole terminal -- real defensive practice for a
+		// loop processing an untrusted, complex byte stream, not a
+		// band-aid over one specific bug.
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Fprintln(os.Stderr, "pitviper: recovered from a panic in the read loop "+
+					"(this connection is now closed, but pitviper itself did not crash):", r)
+				running.Store(false)
+			}
+		}()
 		buf := make([]byte, 4096)
 		for running.Load() {
 			n, err := ioReader.Read(buf)
