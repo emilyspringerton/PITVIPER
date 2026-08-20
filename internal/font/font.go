@@ -88,6 +88,75 @@ func drawBoxChar(arms boxArms) [GlyphH * GlyphW]byte {
 	return bits
 }
 
+// brailleDotPositions maps each of the 8 real Unicode Braille dot bits
+// (U+2800's own encoding: bit N-1 set means dot N is raised) to its real
+// (col, row) position in the standard 2-column x 4-row Braille cell
+// layout:
+//
+//	1 4
+//	2 5
+//	3 6
+//	7 8
+//
+// Founder, real-time, precise diagnosis: "all the claude little star
+// animations are ?" -> "in PITVIPER" -- same real bug class as the
+// box-drawing fix above (a character outside the old ASCII-only Atlas
+// falls back to '?'), not a new one. Real, common CLI-spinner convention
+// (Node's own cli-spinners package, which Claude Code -- a Node.js CLI
+// -- very plausibly uses) animates through Braille Pattern characters
+// (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ etc., U+2800-U+28FF) for exactly this kind of spinner --
+// inferred from real, common convention, not independently confirmed
+// against Claude Code's own source, which isn't available to check
+// directly here.
+var brailleDotPositions = [8][2]int{
+	{0, 0}, // dot 1
+	{0, 1}, // dot 2
+	{0, 2}, // dot 3
+	{1, 0}, // dot 4
+	{1, 1}, // dot 5
+	{1, 2}, // dot 6
+	{0, 3}, // dot 7
+	{1, 3}, // dot 8
+}
+
+const (
+	brailleColX0    = 2
+	brailleColX1    = 5
+	brailleDotW     = 2
+	brailleDotH     = 2
+	brailleRowSpanY = (GlyphH - 2) / 4
+)
+
+// drawBrailleChar procedurally draws a real 2x4 Braille dot cell for the
+// given raised-dot bitmask (ch - 0x2800) -- every one of the real 256
+// Braille Pattern characters, not just the handful a spinner cycles
+// through, the same "cover the whole real block" completeness the
+// box-drawing set above already has.
+func drawBrailleChar(dots byte) [GlyphH * GlyphW]byte {
+	var bits [GlyphH * GlyphW]byte
+	for bit := 0; bit < 8; bit++ {
+		if dots&(1<<uint(bit)) == 0 {
+			continue
+		}
+		col, row := brailleDotPositions[bit][0], brailleDotPositions[bit][1]
+		x0 := brailleColX0
+		if col == 1 {
+			x0 = brailleColX1
+		}
+		y0 := 1 + row*brailleRowSpanY
+		for dy := 0; dy < brailleDotH; dy++ {
+			for dx := 0; dx < brailleDotW; dx++ {
+				y := y0 + dy
+				x := x0 + dx
+				if y >= 0 && y < GlyphH && x >= 0 && x < GlyphW {
+					bits[y*GlyphW+x] = 1
+				}
+			}
+		}
+	}
+	return bits
+}
+
 func init() {
 	face := basicfont.Face7x13
 	for ch := rune(0x20); ch <= 0x7e; ch++ {
@@ -112,6 +181,10 @@ func init() {
 
 	for ch, arms := range boxDrawingChars {
 		extended[ch] = drawBoxChar(arms)
+	}
+
+	for ch := rune(0x2800); ch <= 0x28FF; ch++ {
+		extended[ch] = drawBrailleChar(byte(ch - 0x2800))
 	}
 }
 

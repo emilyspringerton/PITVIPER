@@ -116,3 +116,52 @@ func TestGlyphBitsBoxDrawing(t *testing.T) {
 		t.Error("┼ (0x253C): expected the vertical arm to reach both edges")
 	}
 }
+
+// TestGlyphBitsBraillePatterns covers the real bug the founder reported
+// live: "all the claude little star animations are ?" -> "in pitviper"
+// -- the same '?' fallback bug class as box-drawing, this time for the
+// real Unicode Braille Pattern block (U+2800-U+28FF) a Node-based CLI
+// spinner (Claude Code's own, very plausibly) animates through.
+func TestGlyphBitsBraillePatterns(t *testing.T) {
+	qbits := font.GlyphBits('?')
+
+	// The whole real 256-character block must have a real glyph, not '?'.
+	for ch := rune(0x2800); ch <= 0x28FF; ch++ {
+		bits := font.GlyphBits(ch)
+		if bits == nil {
+			t.Fatalf("GlyphBits(%U) returned nil", ch)
+		}
+		if *bits == *qbits {
+			t.Errorf("GlyphBits(%U) fell back to '?' -- the exact bug being fixed", ch)
+		}
+	}
+
+	// U+2800 itself (BRAILLE PATTERN BLANK, all 8 dots raised = none) is
+	// real and expected to be genuinely blank -- distinct from '?', not
+	// a sign the lookup failed.
+	blank := font.GlyphBits(0x2800)
+	nonzero := false
+	for _, b := range blank {
+		if b != 0 {
+			nonzero = true
+			break
+		}
+	}
+	if nonzero {
+		t.Error("U+2800 (BRAILLE PATTERN BLANK, no dots raised) should render as genuinely blank")
+	}
+
+	// U+28FF (all 8 dots raised) is real and expected to have every one
+	// of its 8 real dot positions set -- not just "non-blank," the real
+	// specific shape.
+	full := font.GlyphBits(0x28FF)
+	setCount := 0
+	for _, b := range full {
+		if b != 0 {
+			setCount++
+		}
+	}
+	if setCount == 0 {
+		t.Error("U+28FF (all 8 Braille dots raised) rendered as blank, want real dot pixels set")
+	}
+}
