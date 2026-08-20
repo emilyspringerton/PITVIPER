@@ -1,4 +1,5 @@
 ## 2026-08-20
+- 自動尋找 Git for Windows 安裝路徑(不只依賴 PATH)、Photoshop 風格縮放快捷鍵(Ctrl+/-、Ctrl+0、Ctrl+滾輪) (sess-20260820-0649-a3f19d93)
 - 修復 Windows shell 解析:略過 System32 的舊版 WSL bash.exe stub,避免在未啟用 WSL 的機器上誤判啟動 WSL (sess-20260820-0649-a3f19d93)
 
 - Windows build passing (ConPTY PTY backend, internal/pty/pty_windows.go) + mouse-drag text selection/copy/paste (Ctrl+Shift+C/V, middle-click) + full README refresh (Windows build mechanics, complete keybinding reference, brief philosophy section). Verified live via Xvfb+XTest and confirmed via real CI run (both Linux and Windows jobs green, run 32343167493). (sess-20260820-0649-a3f19d93)
