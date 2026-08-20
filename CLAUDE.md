@@ -4,6 +4,24 @@ PITVIPER is a standalone SDL2 terminal emulator with Emily Prime integration hoo
 Not a TUI framework — a purpose-built terminal that renders at native GPU speed and
 exposes every operator interaction as an auditable signal.
 
+**The real mission, in the founder's own words (2026-08-20)**: "basically i am extending my
+IDE which is actually this VPS" — PITVIPER isn't just a terminal, it's the lightweight,
+GPU-accelerated, low-latency client window into treating this VPS itself as the IDE. The
+real work (editing, building, running) happens on the box; PITVIPER is how that stays fast
+and usable from wherever the founder is. "like i am always in ssh" — the SSH-connected
+session is the default, persistent mode, not something to route around; "i am using
+pitviper to bring the affordances in a more gui way when we dont need to live in ssh
+necessarily" — real GUI popouts (panels/widgets, not just VT100 text) layer *on top of*
+that persistent SSH session for the cases where a pure text stream is the wrong fit, not a
+separate mode. Concrete, real threads this mission is already driving: a vim-like editor
+written in PARENA (SFTP + a NERDTree-style file-tree sidebar), and a custom PITVIPER server
+component (AskUserQuestion-confirmed over adopting an existing protocol like Sixel) so the
+GUI-popout affordance has something real to talk to — "lz4ify the fuck out of everything" /
+"all the packet hacks we can" is the founder's own emphasis that this protocol has to stay
+genuinely fast over a real network link, not just functionally correct. See
+`EMILY/BACKLOG.md` S189-19+ for the live tracking; PARENA's own `NORTHSTAR.md` strangler-fig
+adoption note is the mechanism this whole mission is threaded through.
+
 ## North Star
 
 `docs/NORTHSTAR.md` — Milestone-gated delivery from SDL2 bootstrap to Emily Prime pane + hook layer.
