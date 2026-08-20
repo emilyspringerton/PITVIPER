@@ -1,4 +1,5 @@
 ## 2026-08-20
+- 修復 Claude Code 動畫（spinner）在 PITVIPER 中顯示為 '?' 的問題：新增完整 256 字元 Unicode Braille Pattern 區塊 (U+2800-U+28FF) 的真實程序化字型渲染，涵蓋整個區塊而非僅 spinner 用到的少數字元；GPU glyph atlas 自動撿到新字元範圍無需額外接線 (commit 7d4ae3f) (sess-20260820-0649-a3f19d93)
 - F11 toggle 加入真實 JetBrains Mono shiny font(疊在 OG 點陣圖字型上,SDL2_ttf 為基礎) (sess-20260820-0649-a3f19d93)
 - docs/NORTHSTAR.md §7:「wandering oracle」核心原則(不要太早收緊 feedback loop),創辦人明確要求成為核心 pillar (sess-20260820-0649-a3f19d93)
 - 修復 alternate-screen 離開時 scroll region 沒重設的真實 bug(clear 看起來沒作用);GPU 字形圖集取代逐像素繪圖;PTY 讀取迴圈加 panic recover;記錄 PITVIPER=VPS-as-IDE 的整體願景 (sess-20260820-0649-a3f19d93)
