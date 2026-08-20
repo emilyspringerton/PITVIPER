@@ -1,4 +1,5 @@
 ## 2026-08-20
+- F11 toggle 加入真實 JetBrains Mono shiny font(疊在 OG 點陣圖字型上,SDL2_ttf 為基礎) (sess-20260820-0649-a3f19d93)
 - docs/NORTHSTAR.md §7:「wandering oracle」核心原則(不要太早收緊 feedback loop),創辦人明確要求成為核心 pillar (sess-20260820-0649-a3f19d93)
 - 修復 alternate-screen 離開時 scroll region 沒重設的真實 bug(clear 看起來沒作用);GPU 字形圖集取代逐像素繪圖;PTY 讀取迴圈加 panic recover;記錄 PITVIPER=VPS-as-IDE 的整體願景 (sess-20260820-0649-a3f19d93)
 - 真實彩色 emoji 渲染(SDL2_ttf + Noto Color Emoji),阻塞在 sudo-queue/19,gofmt 乾淨、預期的 pkg-config 錯誤已確認 (sess-20260820-0649-a3f19d93)
