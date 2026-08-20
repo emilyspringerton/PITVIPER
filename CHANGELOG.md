@@ -1,4 +1,5 @@
 ## 2026-08-20
+- 修復 alternate-screen 離開時 scroll region 沒重設的真實 bug(clear 看起來沒作用);GPU 字形圖集取代逐像素繪圖;PTY 讀取迴圈加 panic recover;記錄 PITVIPER=VPS-as-IDE 的整體願景 (sess-20260820-0649-a3f19d93)
 - 真實彩色 emoji 渲染(SDL2_ttf + Noto Color Emoji),阻塞在 sudo-queue/19,gofmt 乾淨、預期的 pkg-config 錯誤已確認 (sess-20260820-0649-a3f19d93)
 - 自動尋找 Git for Windows 安裝路徑(不只依賴 PATH)、Photoshop 風格縮放快捷鍵(Ctrl+/-、Ctrl+0、Ctrl+滾輪) (sess-20260820-0649-a3f19d93)
 - 修復 Windows shell 解析:略過 System32 的舊版 WSL bash.exe stub,避免在未啟用 WSL 的機器上誤判啟動 WSL (sess-20260820-0649-a3f19d93)
