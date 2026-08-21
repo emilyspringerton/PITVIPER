@@ -1,3 +1,7 @@
+## 2026-08-21
+
+- 新增 CI 自動 minor version bump + GitHub Release 機制(真正 release track,不加 prerelease);已驗證真的建出 v0.1.0,附兩平台 binary;Apple #15217,commit 983315b (sess-20260820-0649-a3f19d93)
+
 ## 2026-08-20
 - 修復中鍵貼上(middle-click paste)只讀內部 lastSelected 導致貼出過期內容的 critical bug,改成優先讀真正的 OS 剪貼簿,只有讀取失敗/空的時候才退回 lastSelected;CI 綠燈 (commit 254fb39) (sess-20260820-0649-a3f19d93)
 - 修復 Claude Code 動畫（spinner）在 PITVIPER 中顯示為 '?' 的問題：新增完整 256 字元 Unicode Braille Pattern 區塊 (U+2800-U+28FF) 的真實程序化字型渲染，涵蓋整個區塊而非僅 spinner 用到的少數字元；GPU glyph atlas 自動撿到新字元範圍無需額外接線 (commit 7d4ae3f) (sess-20260820-0649-a3f19d93)
