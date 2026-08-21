@@ -155,3 +155,80 @@ jobs:
           name: pitviper-windows-${{ github.run_number }}-${{ github.sha }}
           path: dist/
           if-no-files-found: error
+
+  # Founder real-time, 2026-08-21: "whenever a build passes release it as
+  # a minor version" -> "like a . bump" -> "i will handle big bumps to
+  # signify human verify releases" -> "start pushing the artifacts to
+  # releases in github" -> "for parena and pitviper" -> "pitviper is not
+  # pre release" / "pitviper is release release" (unlike PARENA, which is
+  # still pre-1.0 -- PITVIPER's own real, already-shipped code, per this
+  # repo's own README status note, is a real release track). Runs only
+  # after BOTH platform builds succeed, only on a real push to main (not
+  # PRs, not other branches, not the tag-push this job's own release step
+  # triggers) -- auto-bumps the MINOR version only, same real "major is
+  # the founder's own manual call" split PARENA's own workflow uses.
+  release:
+    name: 🚀 Tag & Release
+    runs-on: ubuntu-latest
+    needs: [test_build_construct, build_windows]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: write
+
+    steps:
+      # fetch-depth: 0 -- need the full tag history to find the current
+      # version; actions/checkout's own default shallow clone doesn't
+      # reliably include tags.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pitviper-linux-${{ github.run_number }}-${{ github.sha }}
+          path: dist/linux
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pitviper-windows-${{ github.run_number }}-${{ github.sha }}
+          path: dist/windows
+
+      - name: Package release assets
+        run: |
+          set -euo pipefail
+          chmod +x dist/linux/pitviper
+          tar -czf pitviper-linux-x86_64.tar.gz -C dist/linux pitviper
+          (cd dist/windows && zip -r ../../pitviper-windows-x86_64.zip .)
+
+      - name: Compute next minor version
+        id: version
+        run: |
+          set -euo pipefail
+          latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)"
+          if [ -z "$latest" ]; then
+            major=0
+            minor=0
+          else
+            ver="${latest#v}"
+            major="$(echo "$ver" | cut -d. -f1)"
+            minor="$(echo "$ver" | cut -d. -f2)"
+          fi
+          next_minor=$((minor + 1))
+          next="v${major}.${next_minor}.0"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT_VERSION: ${{ steps.version.outputs.next }}
+        run: |
+          set -euo pipefail
+          git tag "$NEXT_VERSION"
+          git push origin "$NEXT_VERSION"
+          gh release create "$NEXT_VERSION" \
+            pitviper-linux-x86_64.tar.gz \
+            pitviper-windows-x86_64.zip \
+            --title "$NEXT_VERSION" \
+            --generate-notes
