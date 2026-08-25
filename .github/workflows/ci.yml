@@ -47,6 +47,44 @@ jobs:
           CGO_ENABLED=1 go build -o pitviper ./cmd/pitviper
           echo "Build OK: $(ls -lh pitviper)"
 
+      # Founder real-time, 2026-08-25: wants pitviper installable via
+      # https://github.com/marcosnils/bin (a raw-binary GitHub-release
+      # installer, no package-manager dependency resolution) -- "we are
+      # gonna need to link sdl2 in or whatever? i dunno how that works".
+      # Real gap this closes: `ldd pitviper` on a plain CGO_ENABLED=1
+      # build shows a direct dynamic dependency on libSDL2-2.0.so.0 and
+      # libSDL2_ttf-2.0.so.0, neither of which is installed on a typical
+      # fresh Linux machine (they're dev/runtime packages, not base-OS).
+      # A `bin`-installed binary with no dependency resolution would just
+      # fail to launch there. Fix: bundle those two .so files alongside
+      # the binary and patch its RPATH to $ORIGIN/lib (via patchelf) so
+      # it finds them next to itself, the same problem Windows already
+      # solves via DLL bundling below -- same idea, Linux mechanism.
+      #
+      # Deliberately NOT bundling the full transitive closure (`ldd`
+      # shows 50+ libraries once X11/Wayland/ALSA/PulseAudio/DBus/
+      # systemd/FreeType/HarfBuzz and their own dependencies are
+      # counted) -- those are base desktop-Linux libraries every
+      # graphical application already assumes present (the same
+      # assumption virtually every SDL2 game distributed on Linux
+      # makes; a fully static, zero-host-dependency SDL2+X11 binary is
+      # a real, much bigger undertaking -- not attempted here). Bundling
+      # just the two SDL2-family libraries covers the actual gap (game-
+      # dev runtime libs a fresh machine is genuinely unlikely to have)
+      # without pretending to solve hermetic Linux binary distribution
+      # in general.
+      - name: Bundle SDL2 runtime libraries for standalone distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y patchelf
+          mkdir -p lib
+          cp /usr/lib/x86_64-linux-gnu/libSDL2-2.0.so.0 lib/
+          cp /usr/lib/x86_64-linux-gnu/libSDL2_ttf-2.0.so.0 lib/
+          patchelf --set-rpath '$ORIGIN/lib' pitviper
+          echo "RPATH set: $(patchelf --print-rpath pitviper)"
+          echo "Bundled libs:" && ls -lh lib/
+
       - name: Generate Construct Bundle
         shell: bash
         run: |
@@ -96,6 +134,7 @@ jobs:
           name: pitviper-linux-${{ github.run_number }}-${{ github.sha }}
           path: |
             pitviper
+            lib/
             PITVIPER_CONSTRUCT.txt
           if-no-files-found: error
 
@@ -199,7 +238,11 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x dist/linux/pitviper
-          tar -czf pitviper-linux-x86_64.tar.gz -C dist/linux pitviper
+          # Includes lib/ (bundled libSDL2/libSDL2_ttf, RPATH already set
+          # to $ORIGIN/lib at build time) so the tarball is a real
+          # standalone install, not just the binary -- see this
+          # workflow's own "Bundle SDL2 runtime libraries" step comment.
+          tar -czf pitviper-linux-x86_64.tar.gz -C dist/linux pitviper lib
           (cd dist/windows && zip -r ../../pitviper-windows-x86_64.zip .)
 
       - name: Compute next minor version
