@@ -33,8 +33,15 @@ import (
 	"pitviper/internal/gfdapi"
 	"pitviper/internal/mudconn"
 	"pitviper/internal/pty"
+	"pitviper/internal/scrollmod"
 	"pitviper/internal/vterm"
 )
+
+// wheelScrollLines is how many vterm rows one wheel "notch" (SDL's
+// MouseWheelEvent.Y == ±1 on most mice; larger for high-res trackpads)
+// scrolls — a small, deliberately conservative constant, not tied to
+// defaultRows the way Page Up/Down's half-screen jump is.
+const wheelScrollLines = 3
 
 const version = "0.1.0-milestone1"
 
@@ -294,6 +301,8 @@ func main() {
 	shellFlag := flag.String("shell", "", "shell to launch (default: $SHELL or /bin/bash)")
 	gfdFlag := flag.String("gfd", "", "connect to GFD MUD at host:port (e.g. localhost:2323)")
 	wmFlag := flag.Bool("gfd-webmaster", false, "webmaster mode — elevated display in GFD client")
+	modScrollFlag := flag.Bool("mod-scroll", os.Getenv("PITVIPER_MOD_SCROLL") == "1",
+		"enable the PARENA mod-surface wheel-scroll fix (v0, off by default until verified — S192)")
 	flag.Parse()
 
 	if *ver {
@@ -390,6 +399,14 @@ func main() {
 
 	cols, rows := defaultCols, defaultRows
 	screen := vterm.New(cols, rows)
+
+	// PARENA mod-surface wheel-scroll fix (S192, v0) — registered
+	// unconditionally (cheap, a single func assignment) but only ever
+	// *called* when -mod-scroll is set; see the sdl.MouseWheelEvent case
+	// below. wheelScrollLines mirrors handleScrollKey's own PageUp/Down
+	// convention (positive = scroll back into history, negative = toward
+	// live view) rather than inventing a new sign convention.
+	scrollmod.ScrollCallback = func(delta int) { screen.ScrollBy(delta) }
 
 	// ── Connection: TCP MUD or PTY shell ──────────────────────────────────────
 
@@ -658,16 +675,19 @@ func main() {
 			case *sdl.MouseWheelEvent:
 				// Ctrl+scroll: zoom, Photoshop's own Ctrl/Cmd+scroll-wheel zoom binding
 				// (founder: "i guess a key combo with scroll to zoom the terminal text
-				// size"). Plain scroll (no Ctrl) is intentionally a no-op here — PITVIPER
-				// has no scrollback buffer at all yet (Page Up/Down already scroll the
-				// live screen via handleScrollKey, a real separate feature); wiring wheel
-				// events to a real scrollback is flagged as its own follow-up, not faked.
+				// size"). Plain scroll (no Ctrl) used to be an intentional no-op here —
+				// that's now fixed (S192): routed through scrollmod, PITVIPER's first
+				// real PARENA-authored mod, gated behind -mod-scroll (off by default
+				// until verified, per the founder's own "mod surface first... verify it
+				// actually works... then mainline" rollout plan, S189-32(6)).
 				if (sdl.GetModState() & sdl.KMOD_CTRL) != 0 {
 					if e.Y > 0 {
 						adjustZoom(zoomStep)
 					} else if e.Y < 0 {
 						adjustZoom(-zoomStep)
 					}
+				} else if *modScrollFlag && e.Y != 0 {
+					scrollmod.TriggerWheelScroll(int(e.Y) * wheelScrollLines)
 				}
 
 			case *sdl.MouseMotionEvent:

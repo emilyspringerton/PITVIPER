@@ -1,3 +1,7 @@
+## 2026-08-25
+
+- mod-surface v0: plain mouse-wheel scroll (was an intentional no-op) now wired to the existing scrollback via PITVIPER's first real PARENA-authored mod — stdlib/pitviper/vterm_mod.prn compiled to C, linked in via a new internal/scrollmod cgo bridge; gated behind -mod-scroll / PITVIPER_MOD_SCROLL=1, off by default until verified live. Round trip live-tested (TestTriggerWheelScrollRoundTrip), not just compile-checked. Apple #15789. (sess-20260825-0828-cc32a704)
+
 ## 2026-08-21
 
 - 新增 CI 自動 minor version bump + GitHub Release 機制(真正 release track,不加 prerelease);已驗證真的建出 v0.1.0,附兩平台 binary;Apple #15217,commit 983315b (sess-20260820-0649-a3f19d93)
