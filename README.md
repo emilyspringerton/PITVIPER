@@ -70,6 +70,7 @@ pitviper                              # plain terminal (PTY, $SHELL or /bin/bash
 pitviper --shell /bin/zsh             # explicit shell
 pitviper --gfd localhost:2323         # connect as the GFD (GoblinFoxDragon) game client
 pitviper --gfd localhost:2323 --gfd-webmaster   # + Emily Prime webmaster overlay
+pitviper --mod-scroll                 # opt in to the PARENA mod-surface wheel-scroll fix (v0)
 pitviper --version                    # print version and exit
 ```
 
@@ -95,21 +96,26 @@ correctly with no special-casing on PITVIPER's side) → `cmd.exe` as the last-r
 | Left-click + drag | always | Select text — highlighted live as you drag, copied to the clipboard automatically the moment you release the button (no extra keypress needed) |
 | `Ctrl+Shift+C` | always | Explicitly re-copy the current selection to the clipboard (redundant with copy-on-release above, but there for the "I want to be sure" case — same binding PuTTY and most Linux terminals use) |
 | `Ctrl+Shift+V` | always | Paste from the OS clipboard into the shell |
-| Middle-click | always | Paste PITVIPER's own last selection (X11-primary-selection-style: select something, middle-click anywhere to drop it back in — **not the only way to paste**, `Ctrl+Shift+V` above is the primary, always-available path) |
+| Middle-click | always | Paste, X11-primary-selection-style: prefers the real OS clipboard (`sdl.GetClipboardText`), falling back to PITVIPER's own last-selected text only if the OS clipboard read fails or is empty |
+| `F11` | always | Toggle the "shiny font" — a real JetBrains Mono TTF render layered over the original bitmap font (`--shiny` off by default; keeps the OG font, adds a shinier one on a switch, not a replacement) |
 
 **Why `Ctrl+Shift+C`/`V` and not plain `Ctrl+C`/`V`:** plain `Ctrl+C` is SIGINT and plain `Ctrl+V`
 is a real shell control character (literal-next-char in readline) — both already have a job.
 Adding `Shift` avoids colliding with either, same reasoning `Ctrl+Alt+I` already uses for the SSH
 hotkey above.
 
-**A real limitation, stated plainly, not glossed over:** middle-click paste here is PITVIPER's
-*own* remembered last selection, not the operating system's primary-selection buffer. On Linux,
-X11 has genuine cross-application primary selection (select text in one app, middle-click paste
-it into a different one) — PITVIPER doesn't hook into that. On Windows there's no OS-level
-equivalent to hook into at all. Keeping PITVIPER's own buffer means middle-click behaves
-identically on both platforms, at the cost of only working with text selected inside PITVIPER
-itself, not text copied from other applications (use `Ctrl+Shift+V` for that — it reads the real
-OS clipboard on both platforms).
+**A real bug that used to live here, now fixed:** middle-click paste used to read only
+PITVIPER's own internal `lastSelected` buffer, which only updated after a PITVIPER-internal
+drag-select — so it could paste stale text even when the real OS clipboard (and therefore
+`Ctrl+Shift+V`, and pasting into another app) already had the correct, current content (founder,
+real-time, critical: "i can copy the text out but when i paste... it effing pastes the url the
+like previous clipboard"). Middle-click now reads the real OS clipboard first, on both platforms,
+falling back to the internal buffer only when the OS clipboard is genuinely empty.
+
+The bitmap font also had a real gap: Claude Code's own spinner/star animations render as Braille
+Pattern glyphs (U+2800–U+28FF), which the original bitmap font didn't cover, so they showed as
+`?` inside PITVIPER. Fixed with a real Braille Pattern glyph set — independent of the F11 shiny
+font toggle above, which is a separate, opt-in full-font swap.
 
 ## Build & test
 
@@ -125,3 +131,14 @@ Windows file can be type-checked from Linux without a MinGW toolchain:
 `GOWORK=off GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./internal/pty/...`. That won't
 catch SDL2/cgo-side Windows issues — CI's `build_windows` job (real `windows-latest` runner) is
 the actual source of truth for whether a full Windows build passes.
+
+## Mod surface — PARENA driving PITVIPER's own gameplay/UX (2026-08-25)
+
+`internal/scrollmod/` is PITVIPER's first real PARENA-authored mod (S192-01), following the same
+"mod is the trigger, host Go does the real work" shape EmilyOS's `fsaclmod` and REDGARDEN's arena
+mods use. Plain mouse-wheel scroll (no Ctrl) used to be an intentional no-op — a stale comment
+claimed there was no scrollback, but Page Up/Down already scrolled one. `stdlib/pitviper/
+vterm_mod.prn` compiles via `parena build` to C, linked in through a Go<->PARENA cgo bridge
+(same `#target`/inline-C FFI pattern as `editor/plugin.prn`). Gated behind `-mod-scroll` /
+`PITVIPER_MOD_SCROLL=1`, off by default until verified live — per the founder's own "mod surface
+first... verify it actually works... then mainline" rollout policy (S189-32).
