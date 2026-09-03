@@ -212,6 +212,22 @@ var useShinyFont bool
 // the separate, real, per-renderer GPU texture upload on top of that.
 var shinyTextureCache = map[rune]*sdl.Texture{}
 
+// shouldTryShinyFallback decides whether a cell should attempt the real TTF "shiny" glyph
+// before the render loop's own final '?' substitution -- a real, genuine bug fix (kanban
+// 232131231, "fix unicode in pitviper"): the OG bitmap atlas only ever covers ASCII plus a
+// curated extended set (box-drawing, braille -- see font.KnownGlyphs/font.go's own "extended"
+// map), so any other real character (accented Latin: é/ñ/ü, Cyrillic, Greek, general punctuation
+// like em-dashes/curly quotes) used to silently render as '?' even when the real TTF font --
+// which DOES have glyphs for all of those -- was available, just gated behind the F11 toggle.
+// That toggle is about aesthetic preference for ASCII text, not about whether a character can
+// be displayed at all: this returns true whenever the toggle itself already wants the shiny
+// font, OR the character isn't one the fast atlas can draw regardless of the toggle. Extracted
+// as a pure function (no SDL calls) so the real decision is unit-testable without a live
+// renderer -- the render loop's own SDL texture lookup/draw stays exactly as it was.
+func shouldTryShinyFallback(useShinyFont bool, inAtlas bool) bool {
+	return useShinyFont || !inAtlas
+}
+
 func shinyTexture(ren *sdl.Renderer, ch rune) *sdl.Texture {
 	if tex, ok := shinyTextureCache[ch]; ok {
 		return tex
@@ -997,11 +1013,14 @@ func renderFrame(ren *sdl.Renderer, screen *vterm.Screen) {
 				}
 			}
 
-			// F11 "shiny font" (real JetBrains Mono via SDL2_ttf), checked
-			// before the built-in atlas -- only when the toggle is on and
-			// the font actually loaded; falls through to the OG atlas
-			// otherwise, same layering as the emoji branch above.
-			if useShinyFont {
+			// F11 "shiny font" (real JetBrains Mono via SDL2_ttf), checked before the built-in
+			// atlas -- either the toggle wants it, or (kanban 232131231, "fix unicode in
+			// pitviper") the character is real, genuine unicode the fast atlas can't draw at
+			// all (see shouldTryShinyFallback's own doc comment for the real bug this fixes).
+			// Falls through to the OG atlas below if the font isn't loaded or has no glyph
+			// either, same layering as the emoji branch above.
+			_, inAtlas := glyphAtlasSlot[cell.Ch]
+			if shouldTryShinyFallback(useShinyFont, inAtlas) {
 				if tex := shinyTexture(ren, cell.Ch); tex != nil {
 					_ = tex.SetColorMod(fg.R, fg.G, fg.B)
 					_ = tex.SetAlphaMod(fg.A)

@@ -1,4 +1,25 @@
-## 2026-09-03
+## 2026-09-03 (2)
+- fix(render): real unicode fallback bug fixed (kanban cruise-queue card 232131231, "fix unicode
+  in pitviper"). Found live reading the render loop: the OG bitmap glyph atlas only covers ASCII
+  plus a curated extended set (box-drawing, braille -- font.KnownGlyphs' own real build ranges);
+  any other real character (accented Latin: é/ñ/ü, Cyrillic, Greek, general punctuation like
+  em-dashes/curly quotes) silently rendered as a bare '?', even though the real TTF "shiny" font
+  (JetBrains Mono via SDL2_ttf, already loaded unconditionally at startup) has glyphs for all of
+  those -- it was only ever consulted when the F11 "shiny font" display toggle happened to be
+  manually on, a toggle that's about aesthetic preference for ASCII text, not about whether a
+  character can be displayed at all. Extracted the real decision into a new, pure
+  `shouldTryShinyFallback(useShinyFont, inAtlas bool) bool` (no SDL calls, unit-testable without
+  a live renderer) and wired the render loop to call it before the OG atlas's own final `?`
+  substitution -- the toggle still controls whether ASCII text ALSO gets the prettier TTF
+  rendering, but a genuinely un-atlas-able character now always gets a real chance at its actual
+  glyph first, falling through to `?` only if the TTF font has no glyph for it either (the exact
+  same safe degrade the emoji branch already established). New `TestShouldTryShinyFallback`
+  (`cmd/pitviper/main_test.go`, this package's first test file at all). `go build/vet/test ./...`
+  all clean (the one pre-existing `go vet` lock-copy warning in `renderDistrictPane` is unrelated,
+  confirmed via `git stash`). Real, honest, NOT done: full live visual confirmation under this
+  sandbox's own Xvfb setup isn't possible here -- the same real, already-documented
+  window-compositing gap this repo's own emoji-rendering entry below already named (a windowed
+  screenshot shows a black frame despite zero crash), not a new limitation this fix introduces.
 - Real color emoji rendering verified live for the first time (founder, kanban cruise queue: "emojis need to work in pitviper... what do we need, a custom emoji font or image files or something?"). internal/font/emoji.go's own code was real and complete but explicitly untested since its own real deps (libsdl2-ttf-dev, fonts-noto-color-emoji) weren't installed at write time -- both confirmed installed now. Real, checked answer: neither a custom font nor image files are needed -- Noto Color Emoji (a real, standard system font) plus the existing go-sdl2/ttf binding is sufficient. New TestColorEmojiRenders (internal/font/font_test.go) verifies at the actual SDL surface/pixel level: loads the real font, renders 5 real emoji, inspects real pixel data confirming genuine opaque, multi-colored glyphs, not a blank/fallback surface. go build/vet/test all clean. Real, separate, honestly-flagged gap found along the way: a full windowed screenshot under this sandbox's own Xvfb setup showed a black frame despite the process running with zero crash and libSDL2 confirmed loaded -- a real, unrelated window-compositing issue under this specific headless environment, not solved here. (sess-20260902-2008-ed50169e)
 
 ## 2026-08-25
