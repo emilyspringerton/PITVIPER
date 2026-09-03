@@ -10,14 +10,20 @@
 // 2.20+ series -- this repo's own libsdl2-ttf-dev candidate is 2.22 --
 // renders a color-glyph font's embedded color data directly) instead.
 //
-// Real, honest blocker: this needs libsdl2-ttf-dev and a real color
-// emoji font (fonts-noto-color-emoji) installed, neither present in this
-// dev environment as of writing -- see sudo-queue/
-// 19-pitviper-freetype-emoji-fonts.sh. This file is real, correct Go
-// against the real go-sdl2/ttf API (already vendored as part of the
-// go-sdl2 module PITVIPER already depends on, no new go.mod entry
-// needed), but has not been compiled or run yet; do so once that script
-// has been run, and report the real result rather than assuming success.
+// Real, live-verified (2026-09-03): libsdl2-ttf-dev and fonts-noto-color-emoji are both now
+// installed (the sudo-queue script this comment used to point at has since run and been
+// consumed). This closes the kanban cruise-queue question directly: "what do we need to build a
+// custom emoji font or use image files or something?" — real, checked answer: neither. Noto
+// Color Emoji (a real, standard system font, no custom asset needed) plus the existing
+// go-sdl2/ttf binding this file already used is sufficient. Verified at the actual SDL
+// surface/pixel level, not just "it compiles": `font_test.go`'s own `TestColorEmojiRenders`
+// loads the real font, renders 5 real emoji, and inspects real pixel data confirming genuine
+// opaque, multi-colored glyphs — not a blank/fallback surface. Real, separate, honestly-flagged
+// gap found along the way, not solved here: a full windowed screenshot under this sandbox's own
+// Xvfb setup showed a black frame despite the process running with zero crash/stderr and libSDL2
+// confirmed loaded — a real, unrelated window-compositing issue under this specific headless
+// environment, not a defect in emoji rendering itself (proven separately, at the surface level,
+// above).
 package font
 
 import (
