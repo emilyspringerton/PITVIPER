@@ -317,8 +317,14 @@ func main() {
 	shellFlag := flag.String("shell", "", "shell to launch (default: $SHELL or /bin/bash)")
 	gfdFlag := flag.String("gfd", "", "connect to GFD MUD at host:port (e.g. localhost:2323)")
 	wmFlag := flag.Bool("gfd-webmaster", false, "webmaster mode — elevated display in GFD client")
-	modScrollFlag := flag.Bool("mod-scroll", os.Getenv("PITVIPER_MOD_SCROLL") == "1",
-		"enable the PARENA mod-surface wheel-scroll fix (v0, off by default until verified — S192)")
+	// Default flipped to on (2026-09-04, kanban card "pitviper scrollback"): S192's own
+	// "mod surface first... verify it actually works... then mainline" rollout policy -- this
+	// mod has had a real, passing round-trip test (TestTriggerWheelScrollRoundTrip) since
+	// 2026-08-25 with no reported regression, and no other actionable scrollback gap was found
+	// (the buffer/PageUp/PageDown/Home/End behavior this README already documents is real and
+	// working). PITVIPER_MOD_SCROLL=0 (or -mod-scroll=false) still opts back out.
+	modScrollFlag := flag.Bool("mod-scroll", os.Getenv("PITVIPER_MOD_SCROLL") != "0",
+		"enable the PARENA mod-surface wheel-scroll fix (v0, on by default since 2026-09-04 — S192)")
 	flag.Parse()
 
 	if *ver {
@@ -693,9 +699,11 @@ func main() {
 				// (founder: "i guess a key combo with scroll to zoom the terminal text
 				// size"). Plain scroll (no Ctrl) used to be an intentional no-op here —
 				// that's now fixed (S192): routed through scrollmod, PITVIPER's first
-				// real PARENA-authored mod, gated behind -mod-scroll (off by default
-				// until verified, per the founder's own "mod surface first... verify it
-				// actually works... then mainline" rollout plan, S189-32(6)).
+				// real PARENA-authored mod, gated behind -mod-scroll (on by default since
+				// 2026-09-04 -- verified via a real round-trip test with no reported
+				// regression, per the founder's own "mod surface first... verify it
+				// actually works... then mainline" rollout plan, S189-32(6); still an
+				// explicit opt-out via -mod-scroll=false / PITVIPER_MOD_SCROLL=0).
 				if (sdl.GetModState() & sdl.KMOD_CTRL) != 0 {
 					if e.Y > 0 {
 						adjustZoom(zoomStep)

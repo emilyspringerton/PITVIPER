@@ -1,3 +1,17 @@
+## 2026-09-04
+
+- feat(mod-surface): mouse-wheel scrollback mod (`internal/scrollmod`, S192) flipped to **on by
+  default** (kanban cruise-queue card "pitviper scrollback"). Real investigation first: the
+  scrollback feature itself (10,000-line buffer, Shift+PageUp/Down, Shift+Home/End) was already
+  fully built and working, and no other actionable scrollback gap was found — the one genuinely
+  still-experimental piece was this mouse-wheel mod, gated off since 2026-08-25 pending
+  verification per S189-32's own "mod surface first... verify it actually works... then
+  mainline" rollout policy. It has had a real, passing round-trip test
+  (`TestTriggerWheelScrollRoundTrip`) the whole time with no reported regression, so it's
+  promoted to default-on here; `-mod-scroll=false` / `PITVIPER_MOD_SCROLL=0` still opts back
+  out. `GOWORK=off go build/vet/test ./...` clean (one pre-existing, unrelated vet warning in
+  `renderDistrictPane` — a lock-by-value copy of `gfdapi.State`, not touched by this change).
+
 ## 2026-09-03 (2)
 - fix(render): real unicode fallback bug fixed (kanban cruise-queue card 232131231, "fix unicode
   in pitviper"). Found live reading the render loop: the OG bitmap glyph atlas only covers ASCII

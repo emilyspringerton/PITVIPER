@@ -70,7 +70,7 @@ pitviper                              # plain terminal (PTY, $SHELL or /bin/bash
 pitviper --shell /bin/zsh             # explicit shell
 pitviper --gfd localhost:2323         # connect as the GFD (GoblinFoxDragon) game client
 pitviper --gfd localhost:2323 --gfd-webmaster   # + Emily Prime webmaster overlay
-pitviper --mod-scroll                 # opt in to the PARENA mod-surface wheel-scroll fix (v0)
+pitviper --mod-scroll=false            # opt out of the PARENA mod-surface wheel-scroll fix (on by default since 2026-09-04)
 pitviper --version                    # print version and exit
 ```
 
@@ -140,5 +140,7 @@ mods use. Plain mouse-wheel scroll (no Ctrl) used to be an intentional no-op —
 claimed there was no scrollback, but Page Up/Down already scrolled one. `stdlib/pitviper/
 vterm_mod.prn` compiles via `parena build` to C, linked in through a Go<->PARENA cgo bridge
 (same `#target`/inline-C FFI pattern as `editor/plugin.prn`). Gated behind `-mod-scroll` /
-`PITVIPER_MOD_SCROLL=1`, off by default until verified live — per the founder's own "mod surface
-first... verify it actually works... then mainline" rollout policy (S189-32).
+`PITVIPER_MOD_SCROLL`, **on by default since 2026-09-04** — per the founder's own "mod surface
+first... verify it actually works... then mainline" rollout policy (S189-32): a real round-trip
+test (`TestTriggerWheelScrollRoundTrip`) has passed since 2026-08-25 with no reported regression.
+`-mod-scroll=false` / `PITVIPER_MOD_SCROLL=0` still opts back out.
