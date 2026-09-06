@@ -1,3 +1,7 @@
+## 2026-09-06
+
+- SSH client mode (internal/sshconn), self-contained on-device key generation (internal/sshkey), and a one-time enrollment listener (cmd/pitviper-enroll) -- Android build prep, PITVIPER can now be a pure SSH client with zero local shell dependency. (sess-20260905-0720-ec33e7c5)
+
 ## 2026-09-04
 
 - feat(mod-surface): mouse-wheel scrollback mod (`internal/scrollmod`, S192) flipped to **on by
