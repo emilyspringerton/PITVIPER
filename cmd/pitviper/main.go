@@ -19,11 +19,15 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/veandco/go-sdl2/sdl"
 	"io"
+	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -34,8 +38,44 @@ import (
 	"pitviper/internal/mudconn"
 	"pitviper/internal/pty"
 	"pitviper/internal/scrollmod"
+	"pitviper/internal/sshconn"
+	"pitviper/internal/sshkey"
 	"pitviper/internal/vterm"
 )
+
+// runSSHEnroll generates (or loads) this device's own SSH key and POSTs the PUBLIC half to a
+// pitviper-enroll listener at baseURL (e.g. "http://203.0.113.5:8099") -- see
+// cmd/pitviper-enroll's own header comment for the full, real one-time-code protocol this talks
+// to. Never sends anything but the public key; the private half never leaves this device.
+func runSSHEnroll(baseURL, code string) error {
+	if code == "" {
+		return fmt.Errorf("-ssh-enroll-code is required (the 6-digit code pitviper-enroll printed)")
+	}
+	cfgDir, err := os.UserConfigDir()
+	if err != nil {
+		cfgDir = "."
+	}
+	keyPath := filepath.Join(cfgDir, "pitviper", "id_ed25519")
+	pubLine, _, err := sshkey.LoadOrGenerate(keyPath)
+	if err != nil {
+		return fmt.Errorf("load/generate key: %w", err)
+	}
+
+	body, err := json.Marshal(map[string]string{"code": code, "pubkey": pubLine})
+	if err != nil {
+		return err
+	}
+	url := strings.TrimRight(baseURL, "/") + "/enroll"
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("POST %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("enrollment server rejected the request (HTTP %d) -- check the code and that it hasn't expired", resp.StatusCode)
+	}
+	return nil
+}
 
 // wheelScrollLines is how many vterm rows one wheel "notch" (SDL's
 // MouseWheelEvent.Y == ±1 on most mice; larger for high-res trackpads)
@@ -317,6 +357,17 @@ func main() {
 	shellFlag := flag.String("shell", "", "shell to launch (default: $SHELL or /bin/bash)")
 	gfdFlag := flag.String("gfd", "", "connect to GFD MUD at host:port (e.g. localhost:2323)")
 	wmFlag := flag.Bool("gfd-webmaster", false, "webmaster mode — elevated display in GFD client")
+	// SSH client mode (founder real-time, 2026-09-06: "get pitviper building for android im
+	// not sure how you will let me have bash or zsh all i need to do is ssh from android") --
+	// renders a REAL remote shell over SSH instead of spawning a local one, since Android has
+	// no bash/zsh to spawn locally in the first place. See internal/sshconn's own header
+	// comment for the full architecture note.
+	sshFlag := flag.String("ssh", "", "connect over SSH to user@host[:port] instead of a local shell")
+	sshKeyFlag := flag.String("ssh-key", "", "private key file for -ssh (tried alongside any running ssh-agent)")
+	sshPasswordFlag := flag.String("ssh-password", os.Getenv("PITVIPER_SSH_PASSWORD"), "password for -ssh (or set PITVIPER_SSH_PASSWORD; prefer a key or agent when possible)")
+	sshInsecureFlag := flag.Bool("ssh-insecure", false, "skip SSH host key verification for -ssh (only if you've verified the server's fingerprint some other real way)")
+	sshEnrollFlag := flag.String("ssh-enroll", "", "one-time enrollment: POST this device's public key to http://host:port (a pitviper-enroll listener) instead of connecting")
+	sshEnrollCodeFlag := flag.String("ssh-enroll-code", "", "the 6-digit code pitviper-enroll printed, required with -ssh-enroll")
 	// Default flipped to on (2026-09-04, kanban card "pitviper scrollback"): S192's own
 	// "mod surface first... verify it actually works... then mainline" rollout policy -- this
 	// mod has had a real, passing round-trip test (TestTriggerWheelScrollRoundTrip) since
@@ -329,6 +380,18 @@ func main() {
 
 	if *ver {
 		fmt.Println("pitviper", version)
+		os.Exit(0)
+	}
+
+	// -ssh-enroll: a real, headless one-shot action, run before anything SDL2/GUI-related --
+	// generate (or load) this device's own key, POST the PUBLIC half to a pitviper-enroll
+	// listener, and exit. See cmd/pitviper-enroll's own header comment for the full protocol.
+	if *sshEnrollFlag != "" {
+		if err := runSSHEnroll(*sshEnrollFlag, *sshEnrollCodeFlag); err != nil {
+			fmt.Fprintln(os.Stderr, "ssh enroll:", err)
+			os.Exit(1)
+		}
+		fmt.Println("Enrolled. You can now use -ssh without -ssh-enroll.")
 		os.Exit(0)
 	}
 
@@ -456,6 +519,62 @@ func main() {
 		connClose = mc.Close
 		connResize = mc.Resize
 		fmt.Printf("Connected to GFD MUD at %s\n", addr)
+	} else if *sshFlag != "" {
+		user, host, ok := strings.Cut(*sshFlag, "@")
+		if !ok {
+			fmt.Fprintln(os.Stderr, "pitviper: -ssh must be user@host[:port]")
+			os.Exit(1)
+		}
+
+		keyPath := *sshKeyFlag
+		// Self-contained key generation (founder real-time, 2026-09-06: "the phone app will
+		// need a way to generate the key and then use it i dont know just how to do that
+		// randomly on an android phone") -- when no explicit key or password is given, PITVIPER
+		// generates its own Ed25519 keypair on first run (see internal/sshkey's own header
+		// comment for why only the PUBLIC half ever needs to leave the device) rather than
+		// requiring a separate app (Termux or otherwise) just to produce one.
+		if keyPath == "" && *sshPasswordFlag == "" {
+			cfgDir, err := os.UserConfigDir()
+			if err != nil {
+				cfgDir = "."
+			}
+			keyPath = filepath.Join(cfgDir, "pitviper", "id_ed25519")
+			pubLine, generated, err := sshkey.LoadOrGenerate(keyPath)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "ssh key:", err)
+				os.Exit(1)
+			}
+			if generated {
+				// Rendered into the vterm itself (not just stdout) since that's the one thing
+				// guaranteed visible on every platform this runs on, Android included, where
+				// stdout has nowhere to go.
+				screen.Write([]byte("\r\nNo SSH key found -- generated a new one.\r\n" +
+					"Add this PUBLIC key to " + *sshFlag + "'s ~/.ssh/authorized_keys, then reconnect:\r\n\r\n  " +
+					pubLine + "\r\n\r\n"))
+			}
+		}
+
+		sc, err := sshconn.Dial(sshconn.Config{
+			Addr:            host,
+			User:            user,
+			Password:        *sshPasswordFlag,
+			KeyPath:         keyPath,
+			InsecureHostKey: *sshInsecureFlag,
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ssh connect:", err)
+			os.Exit(1)
+		}
+		// Correct the placeholder 80x24 pty size sshconn.Dial requests before the real vterm
+		// dimensions (cols, rows, set above) are known.
+		if err := sc.Resize(cols, rows); err != nil {
+			fmt.Fprintln(os.Stderr, "ssh resize:", err)
+		}
+		ioReader = sc
+		ioWriter = sc
+		connClose = sc.Close
+		connResize = sc.Resize
+		fmt.Printf("Connected over SSH to %s\n", *sshFlag)
 	} else {
 		terminal, err := pty.Open(*shellFlag, cols, rows)
 		if err != nil {
