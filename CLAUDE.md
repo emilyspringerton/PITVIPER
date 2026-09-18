@@ -90,6 +90,10 @@ LZ4 is the default compression codec across the monorepo (see root `/home/fatbab
 wire protocol (`PARENA/stdlib/pitviper/protocol.prn`) already compresses every response through
 `compress/lz4` before send.
 
+## CONSTRUCT File Generation (standing instruction, monorepo Principle 21)
+
+PITVIPER auto-generates CONSTRUCT files on each release (via CI workflow, matching the pattern SHANKPIT established as precedent for "whenever a build passes release it as a minor version" — "like a . bump"). See the main `CLAUDE.md`'s "Principle 21: CONSTRUCT Files" section for the full rationale and implementation pattern. The CONSTRUCT generation is automatic in CI; no manual steps needed.
+
 ## Commit Protocol (standing instruction)
 
 Always commit and push completed work immediately — don't wait to be asked. This is the default for every repo in this monorepo.
