@@ -170,6 +170,41 @@ Emily Prime reads `commands.ndjson` to understand what Emily Springerton is acti
 - Ligature support (JetBrains Mono ligatures via OpenType GSUB)
 - Font live-reload on SIGHUP
 
+### Milestone 6 — GPG Affordance + PARENA-Unified Text Fields
+**Status:** `[~] GPG mod shipped 2026-09-22, editor unification not started`
+
+Founder real-time, 2026-09-22, same turn PITVIPER was added as a SHANKPIT OS app: "build in the
+gpg key generation affordances - build in parena editor to manage the text fields unify" /
+"PARENA POWERED". Two real, separable pieces:
+
+- [x] **GPG key generation, PARENA-powered.** `PARENA/stdlib/pitviper/gpg_mod.prn` — shells out to
+  the real `gpg` binary (`process/run-capture`, the same real subprocess-capture primitive
+  `pitviper/protocol.prn`'s own sibling module already uses) rather than reimplementing OpenPGP:
+  no PARENA crypto stdlib module (`stdlib/crypto/{aes,ed25519,hash}.prn` — checked directly, none
+  of the three) implements RSA/OpenPGP, and that's real, separate, much larger scope this one
+  affordance doesn't need — matches MIXFORGE's own real "shell out to `yt-dlp` rather than
+  reimplement it" precedent. `is-safe-key-field?` is a real, narrow shell-injection guard
+  (letters/digits/space/`@`/`.`/`-`/`_`/`'` only, fail-closed on anything else, checked BEFORE any
+  shell command is built) — `run-capture`'s own doc comment names unescaped concatenation as a
+  real risk, this is the actual guard against it. Compiled and real-verified: `tests/
+  test_pitviper_gpg_mod.c` (validator accept/reject cases + the Err-short-circuit path, all
+  compiled via `parena build` + gcc + run, all pass) plus one out-of-band manual check of the real
+  happy path (`gpg --batch --quick-generate-key` against a scratch `GNUPGHOME`, real key
+  generated, keyring deleted after — never touches this box's own real keyring). **Not yet done**:
+  PITVIPER's own Go host doesn't call this mod from any UI affordance yet — the `.prn` module is
+  real and compiles, but there is no GPG panel in the running terminal yet. List/export/import/
+  sign operations are real, separate, not-yet-built follow-ups.
+- [ ] **PARENA-unified text-field editing.** Not started. `stdlib/editor/{buffer,widget,ui,
+  document,events}.prn` already exist and are exactly the real, existing substrate for this (the
+  same "vim-like editor written in PARENA" thread this file's own header and `EMILY/BACKLOG.md`
+  S189-19+ already name) — the real, concrete new step is wiring PITVIPER's Go/SDL2 host to
+  actually consume `stdlib/editor`'s widget system for every text-input affordance (starting with
+  the new GPG panel's own name/email fields), the same real FFI-callback shape `stdlib/pitviper/
+  vterm_mod.prn` already established for wheel-scroll (`#target/inline-c` calling a host-exported
+  cgo function, and vice versa). Not attempted in this pass — a first real PARENA-editor-in-Go-host
+  integration is its own, larger, first-of-its-kind milestone, not a same-session add-on to the
+  GPG mod above.
+
 ---
 
 ## Design Constraints (Never Compromise)
